@@ -331,6 +331,10 @@ test("renders popup and settings without runtime errors", async ({
   await expect(page.getByRole("heading", { name: "Gmail" })).toBeVisible()
   await expect(page.getByText("Connected · read-only access")).toBeVisible()
   await page.setViewportSize({ width: 390, height: 800 })
+  await expect(page.locator("footer")).toContainText("Version")
+  await page
+    .locator("footer")
+    .screenshot({ path: testInfo.outputPath("popup-version.png") })
   await page.screenshot({
     path: testInfo.outputPath("popup.png"),
     fullPage: true,
@@ -659,52 +663,64 @@ for (const authenticated of [true, false]) {
   })
 }
 
-test("handles an older worker snapshot without crashing and recovers after reload", async ({
-  extension,
-}) => {
-  const page = await extension.context.newPage()
-  const errors: string[] = []
-  page.on("pageerror", (error) => errors.push(error.message))
-  await page.addInitScript(() => {
-    Object.defineProperty(chrome.runtime, "sendMessage", {
-      configurable: true,
-      value: async () => ({
-        configured: true,
-        settings: { connected: true, autofill: true, revocationPending: false },
-        systemError: null,
-        flow: null,
-        allowed: false,
-        origin: null,
-        tabId: null,
-        sites: [],
-      }),
+for (const pageName of ["popup", "options"]) {
+  test(`handles an older worker snapshot in ${pageName} without crashing and recovers after reload`, async ({
+    extension,
+  }) => {
+    const page = await extension.context.newPage()
+    const errors: string[] = []
+    page.on("pageerror", (error) => errors.push(error.message))
+    await page.addInitScript(() => {
+      Object.defineProperty(chrome.runtime, "sendMessage", {
+        configurable: true,
+        value: async () => ({
+          configured: true,
+          settings: {
+            connected: true,
+            autofill: true,
+            revocationPending: false,
+          },
+          systemError: null,
+          flow: null,
+          allowed: false,
+          origin: null,
+          tabId: null,
+          sites: [],
+        }),
+      })
     })
-  })
-  await page.goto(`chrome-extension://${extension.id}/options.html`)
-  await expect(page.getByRole("alert")).toContainText("out of sync")
-  await expect(
-    page.getByRole("heading", { name: "Authorized inboxes" }),
-  ).toBeVisible()
-  await page.evaluate(() => {
-    Object.defineProperty(chrome.runtime, "sendMessage", {
-      configurable: true,
-      value: async () => ({
-        configured: true,
-        settings: { connected: true, autofill: true, revocationPending: false },
-        systemError: null,
-        flow: null,
-        allowed: false,
-        origin: null,
-        tabId: null,
-        sites: [],
-        accounts: [],
-        accountError: null,
+    await page.goto(`chrome-extension://${extension.id}/${pageName}.html`)
+    await expect(page.getByRole("alert")).toContainText("out of sync")
+    await expect(
+      page.getByRole("heading", {
+        name: pageName === "popup" ? "Gmail" : "Authorized inboxes",
       }),
+    ).toBeVisible()
+    await page.evaluate(() => {
+      Object.defineProperty(chrome.runtime, "sendMessage", {
+        configurable: true,
+        value: async () => ({
+          configured: true,
+          settings: {
+            connected: true,
+            autofill: true,
+            revocationPending: false,
+          },
+          systemError: null,
+          flow: null,
+          allowed: false,
+          origin: null,
+          tabId: null,
+          sites: [],
+          accounts: [],
+          accountError: null,
+        }),
+      })
     })
+    await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 7000 })
+    expect(errors).toEqual([])
   })
-  await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 7000 })
-  expect(errors).toEqual([])
-})
+}
 
 for (const scenario of ["single", "split"]) {
   test(`presses Enter once after filling ${scenario} when enabled`, async ({
@@ -768,3 +784,47 @@ test("settings control Enter and cancel a pending Enter without undoing the fill
   ).toContainText("Waiting for manual submission")
   await expect(page.getByLabel("Email verification code")).toHaveValue("482193")
 })
+
+for (const field of ["accounts", "sites", "flow"]) {
+  test(`popup handles malformed ${field} without a render crash`, async ({
+    extension,
+  }) => {
+    const page = await extension.context.newPage()
+    const errors: string[] = []
+    page.on("pageerror", (error) => errors.push(error.message))
+    await page.addInitScript((field) => {
+      const snapshot: Record<string, unknown> = {
+        configured: true,
+        settings: { connected: true, autofill: true, revocationPending: false },
+        systemError: null,
+        flow: null,
+        allowed: false,
+        origin: null,
+        tabId: null,
+        sites: [],
+        accounts: [],
+        accountError: null,
+      }
+      snapshot[field] =
+        field === "flow"
+          ? {
+              state: "ambiguous",
+              id: "fixture",
+              hostname: "example.com",
+              startedAt: Date.now(),
+              detail: "fixture",
+            }
+          : null
+      Object.defineProperty(chrome.runtime, "sendMessage", {
+        value: async () => snapshot,
+      })
+    }, field)
+    await page.goto(`chrome-extension://${extension.id}/popup.html`)
+    await expect(page.getByRole("alert")).toContainText("out of sync")
+    await expect(page.getByRole("heading", { name: "Gmail" })).toBeVisible()
+    await expect(
+      page.getByRole("switch", { name: "Automatic fill" }),
+    ).toBeDisabled()
+    expect(errors).toEqual([])
+  })
+}

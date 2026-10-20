@@ -27,7 +27,7 @@ Script-created keyboard events are not trusted physical keypresses. A custom sit
 
 ## Existing installations
 
-Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.3.0.
+Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.3.1.
 
 Additional inboxes require the updated companion source. If an older companion is running, restart it with `npm run companion` and reconnect its accounts; credentials intentionally do not survive process exit. Primary Chrome Identity mode does not require that process.
 
@@ -37,3 +37,5 @@ Additional inboxes require the updated companion source. If an older companion i
 - [Authentication-Results trust considerations](https://www.rfc-editor.org/rfc/rfc8601)
 - [Validated requestSubmit behavior](https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement/requestSubmit)
 - [Script-created event trust](https://developer.mozilla.org/en-US/docs/Web/API/Event/isTrusted)
+
+If Chrome's Errors page still lists `assets/styles-Cy5V007h.js` with “reading length,” that record came from the old v0.2.0 UI. The current UI validates inbox/site lists and flow data before rendering. Reload the extension card, close old settings tabs and reopen the popup; its footer shows the running UI version. Clear the historical error records after reloading, then check whether a new error appears. Syncing files or refreshing the Errors page alone does not reload the running extension.

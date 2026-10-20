@@ -126,7 +126,7 @@ The sync tool checks the ID before replacing files, preserves the previous insta
 npm run package
 ```
 
-The command creates `artifacts/otp-autofill-0.3.0.zip` from the production build. Environment files and source maps are excluded. Package only after validating the intended configuration and identity.
+The command creates `artifacts/otp-autofill-0.3.1.zip` from the production build. Environment files and source maps are excluded. Package only after validating the intended configuration and identity.
 
 For source sharing, send the repository link. Local `.env` files, `node_modules`, builds, ZIPs, installation backups, Playwright profiles and diagnostic output are intentionally not committed. The original illustrated PDF was removed from the public repository by its owner. Current behavior is documented in these Markdown guides.
 

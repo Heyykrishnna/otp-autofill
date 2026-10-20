@@ -150,7 +150,7 @@ npm audit --audit-level=moderate
 | `npm run build`        | Generate `build/chrome-mv3-prod/`.                                                    |
 | `npm run build:local`  | Build and update an existing configured `artifacts/` installation, preserving its ID. |
 | `npm run sync:local`   | Sync an already-built output into that installation and preserve a backup.            |
-| `npm run package`      | Build and create `artifacts/otp-autofill-0.3.0.zip`.                                  |
+| `npm run package`      | Build and create `artifacts/otp-autofill-0.3.1.zip`.                                  |
 | `npm run typecheck`    | Run strict TypeScript checks.                                                         |
 | `npm run lint`         | Check source, tests and tooling with ESLint.                                          |
 | `npm run format:check` | Check formatting.                                                                     |

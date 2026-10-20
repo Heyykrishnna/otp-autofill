@@ -237,7 +237,11 @@ export default function Popup() {
       )}
       <footer className="privacy-footer">
         <Shield />
-        <span>Local processing. No code history.</span>
+        <span>
+          Local processing. No code history.
+          <br />
+          Version {chrome.runtime.getManifest().version}
+        </span>
         <button
           className="text-button"
           onClick={() => void chrome.runtime.openOptionsPage()}

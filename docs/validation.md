@@ -1,6 +1,6 @@
 # Validation report
 
-Version 0.3.0 validated locally on 21 October 2026 with Node.js 24 and the project-locked Playwright Chromium runtime.
+Version 0.3.1 validated locally on 21 October 2026 with Node.js 24 and the project-locked Playwright Chromium runtime.
 
 | Check                                           | Actual result                                                                                                      |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -10,7 +10,7 @@ Version 0.3.0 validated locally on 21 October 2026 with Node.js 24 and the proje
 | `npm run format:check` within the check command | Passed                                                                                                             |
 | `npm test` within the check command             | 121 tests passed across ten files                                                                                  |
 | `npm run build` within the check command        | Passed; installable Manifest V3 output generated                                                                   |
-| `npm run test:e2e` within the check command     | 27 Chromium browser tests passed                                                                                   |
+| `npm run test:e2e` within the check command     | 31 Chromium browser tests passed                                                                                   |
 | `npm audit --audit-level=moderate`              | Zero vulnerabilities reported                                                                                      |
 | `npm ls --depth=0`                              | Dependency tree resolved without missing or invalid dependencies                                                   |
 | `node scripts/package.mjs`                      | ZIP created successfully with 13 build files                                                                       |
@@ -18,7 +18,7 @@ Version 0.3.0 validated locally on 21 October 2026 with Node.js 24 and the proje
 | Production artifact inspection                  | Runtime entry points present; no fixture tokens, test OAuth client, environment files, or source maps in the build |
 | Popup and settings screenshots                  | Visually inspected; readable layout with no observed clipping                                                      |
 
-The archive is `artifacts/otp-autofill-0.3.0.zip`; its checksum is in `artifacts/SHA256SUMS`. For the existing installation, keep using `artifacts/otp-autofill-0.1.0` so its path-derived ID continues to match the registered OAuth client. Loading a different folder produces a different development identity.
+The archive is `artifacts/otp-autofill-0.3.1.zip`; its checksum is in `artifacts/SHA256SUMS`. For the existing installation, keep using `artifacts/otp-autofill-0.1.0` so its path-derived ID continues to match the registered OAuth client. Loading a different folder produces a different development identity.
 
 The production build was installed directly in an isolated Chromium profile to confirm that missing OAuth configuration produces setup guidance and a disabled connection action. Other browser tests used a separate build copy with controlled Identity and Gmail responses; they did not access a real inbox or change the production manifest.
 
@@ -64,3 +64,13 @@ The Desktop client **OTP Autofill Local Companion** was created in the existing 
 The owner removed the v0.1.0 illustrated PDF from the remote repository in commit f8d9d0a; that change was preserved. A private historical local copy remains under ignored artifacts/history, superseded by the current matching, architecture and privacy documents. No Google secret, test credentials or environment file belongs in the extension ZIP or Git tree.
 
 The owner subsequently clarified that automatic filling was working. This is user-reported live behavior; Enter on real sites and newly inferred third-party templates have not been independently observed. Reloading the updated extension card and refreshing an already-open verification page are required to activate this build.
+
+## Version 0.3.1: identify the stale popup crash
+
+The reported stack names `assets/styles-Cy5V007h.js`. That exact chunk was found in the preserved v0.2.0 installation backup and is absent from the current installed build. An isolated Chromium comparison reproduced “Cannot read properties of undefined (reading 'length')” with the v0.2.0 popup and a legacy worker response without an inbox list. The v0.3.0 production UI handled the same response without a JavaScript exception, confirming its existing snapshot validation protects this path.
+
+This patch adds a visible popup version and extends the regression suite to both popup and settings recovery, plus malformed inbox lists, site lists and flow data. The existing validation rejects incompatible responses before rendering and disables popup autofill actions until valid data returns. It does not change mail matching, credentials or submission policy.
+
+`npm run check` passed with 121 unit/integration tests and 31 Chromium tests, including strict types, lint, formatting and production build. `npm audit --audit-level=moderate` reported zero vulnerabilities. `npm run sync:local` preserved extension ID `pfhmngabnonjbbmomndimnkebibdmjkh`; all 13 installed and ZIP files were compared with the production build, and the reported older chunk was absent. The local Desktop secret was checked to be absent from the archive.
+
+Syncing files does not reload a running Chrome extension, and Chrome can retain historical error records. The owner must reload the extension card, close older settings tabs and reopen the popup, confirm Version 0.3.1 in its footer, then clear old error records. Browser automation cannot operate Chrome extension pages under its URL security policy. No access to the owner's live Gmail or browser profile was used for the reproduction.
