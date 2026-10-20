@@ -28,11 +28,18 @@ Initial failures found during development were corrected and covered by the fina
 
 - The owner confirmed **Gmail connected** after reloading the extension and completing its Google connection flow. That status was reported by the owner; browser automation could not inspect the extension page directly. A real OTP retrieval/fill, cancellation, and Google-side revocation were not independently tested.
 - Actual Chrome host-permission prompts and supported live websites require the controlled beta checks in `testing.md`.
-- The GitHub Actions workflow was created but has not been executed on GitHub.
 - Google restricted-scope verification, public privacy-policy publication, and Chrome Web Store review remain outstanding.
 - The PRD's proposed accuracy and latency targets have not been established through a representative beta corpus. Fixture success is not a production performance claim.
 
 No local validation failure remains unresolved in the final checked build.
+
+## Repository publication
+
+Published to [Heyykrishnna/otp-autofill](https://github.com/Heyykrishnna/otp-autofill) on `main` on 21 October 2026. The initial published commit is `c0699d018fa26025e93df36afff5d2141f62f2d3`. All 69 published files were compared with the local Git tree. All 60 non-Markdown files, including application code, tests, tooling, dependency manifests, configuration, assets and the existing PDF, retained their original bytes during documentation preparation.
+
+Before publication, `npm run check` passed again with 83 unit/integration tests and 17 Chromium tests, and `npm audit --audit-level=moderate` reported zero vulnerabilities. Markdown links and anchors were checked. Private environment files, generated runtime builds, archives, installation backups and browser diagnostics were excluded from the commit.
+
+The first [GitHub Actions run](https://github.com/Heyykrishnna/otp-autofill/actions/runs/39486162609) completed successfully. CI uses the repository's configuration without the owner's ignored local OAuth settings. New clones must configure their own extension identity and Google OAuth client as described in the README.
 
 ## Existing Chrome installation update
 
