@@ -1,0 +1,11 @@
+node_modules/
+.plasmo/
+build/
+artifacts/
+coverage/
+playwright-report/
+test-results/
+.env*
+!.env.example
+.DS_Store
+*.tsbuildinfo

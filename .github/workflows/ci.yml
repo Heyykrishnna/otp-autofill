@@ -1,0 +1,28 @@
+name: Extension checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check
+      - run: npm audit --audit-level=moderate
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otp-autofill-build
+          path: artifacts/*.zip

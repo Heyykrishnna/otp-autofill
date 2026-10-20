@@ -1,0 +1,8 @@
+node_modules
+.plasmo
+build
+artifacts
+coverage
+test-results
+playwright-report
+package-lock.json
