@@ -1,4 +1,10 @@
-import type { FlowState, FlowStatus, VerificationContext } from "./types"
+import { emailAddress } from "./evidence"
+import type {
+  FlowState,
+  FlowStatus,
+  Snapshot,
+  VerificationContext,
+} from "./types"
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -54,6 +60,14 @@ export function isContext(value: unknown): value is VerificationContext {
     Number.isFinite(value.startedAt) &&
     typeof value.hostname === "string" &&
     value.hostname.length <= 253 &&
+    (value.recipient === undefined ||
+      (typeof value.recipient === "string" &&
+        emailAddress(value.recipient) !== null)) &&
+    (value.requestId === undefined ||
+      (typeof value.requestId === "string" &&
+        /^[a-zA-Z0-9_-]{4,80}$/.test(value.requestId))) &&
+    (value.strictAfter === undefined ||
+      typeof value.strictAfter === "boolean") &&
     (field.length === null ||
       (Number.isInteger(field.length) &&
         Number(field.length) >= 4 &&
@@ -113,4 +127,43 @@ export function acceptsPattern(code: string, pattern: string | null): boolean {
         ? 12
         : Number(quantifier[2])
   return code.length >= minimum && code.length <= maximum
+}
+
+export function isSnapshot(value: unknown): value is Snapshot {
+  if (!isRecord(value) || !isRecord(value.settings)) return false
+  const settings = value.settings
+  return (
+    typeof value.configured === "boolean" &&
+    (value.systemError === null || typeof value.systemError === "string") &&
+    typeof settings.connected === "boolean" &&
+    typeof settings.autofill === "boolean" &&
+    typeof settings.revocationPending === "boolean" &&
+    (settings.accountEmail === undefined ||
+      typeof settings.accountEmail === "string") &&
+    (settings.companionEnabled === undefined ||
+      typeof settings.companionEnabled === "boolean") &&
+    (settings.pressEnter === undefined ||
+      typeof settings.pressEnter === "boolean") &&
+    (settings.enterDelayMs === undefined ||
+      (typeof settings.enterDelayMs === "number" &&
+        Number.isInteger(settings.enterDelayMs) &&
+        settings.enterDelayMs >= 0 &&
+        settings.enterDelayMs <= 2000)) &&
+    (value.flow === null || isFlowStatus(value.flow)) &&
+    typeof value.allowed === "boolean" &&
+    (value.origin === null || typeof value.origin === "string") &&
+    (value.tabId === null || typeof value.tabId === "number") &&
+    Array.isArray(value.sites) &&
+    value.sites.every((site: unknown) => typeof site === "string") &&
+    (value.accountError === null || typeof value.accountError === "string") &&
+    Array.isArray(value.accounts) &&
+    value.accounts.every(
+      (account: unknown) =>
+        isRecord(account) &&
+        typeof account.id === "string" &&
+        typeof account.email === "string" &&
+        ["chrome", "companion"].includes(String(account.source)) &&
+        typeof account.available === "boolean",
+    )
+  )
 }

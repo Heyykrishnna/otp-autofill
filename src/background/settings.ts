@@ -1,3 +1,4 @@
+import { emailAddress } from "../core/evidence"
 import { DEFAULT_SETTINGS, type Settings } from "../core/types"
 import { isRecord } from "../core/validation"
 
@@ -9,6 +10,18 @@ export async function readSettings(): Promise<Settings> {
     autofill: typeof value.autofill === "boolean" ? value.autofill : true,
     connected: value.connected === true,
     revocationPending: value.revocationPending === true,
+    accountEmail:
+      typeof value.accountEmail === "string"
+        ? (emailAddress(value.accountEmail) ?? undefined)
+        : undefined,
+    companionEnabled: value.companionEnabled === true,
+    pressEnter: typeof value.pressEnter === "boolean" ? value.pressEnter : true,
+    enterDelayMs:
+      Number.isInteger(value.enterDelayMs) &&
+      Number(value.enterDelayMs) >= 0 &&
+      Number(value.enterDelayMs) <= 2000
+        ? Number(value.enterDelayMs)
+        : 150,
   }
 }
 

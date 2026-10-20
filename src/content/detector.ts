@@ -72,7 +72,17 @@ function constraintsFor(inputs: HTMLInputElement[]): FieldConstraints {
 }
 
 export function detectTargets(root: Document = document): OtpTarget[] {
-  const inputs = [...root.querySelectorAll("input")]
+  const roots: (Document | ShadowRoot)[] = [root]
+  for (let index = 0; index < roots.length && index < 20; index++) {
+    const current = roots[index]
+    if (!current) continue
+    for (const element of [...current.querySelectorAll("*")].slice(0, 2000)) {
+      if (element.shadowRoot && roots.length < 20)
+        roots.push(element.shadowRoot)
+    }
+  }
+  const inputs = roots
+    .flatMap((current) => [...current.querySelectorAll("input")])
     .slice(0, 500)
     .filter(isUsable)
   const targets: OtpTarget[] = []
@@ -94,7 +104,7 @@ export function detectTargets(root: Document = document): OtpTarget[] {
       const groupText = `${group.querySelector("legend")?.textContent ?? ""} ${group.getAttribute("aria-label") ?? ""} ${group.querySelector("label")?.textContent ?? ""}`
       if (
         grouped.length >= 4 &&
-        grouped.length <= 8 &&
+        grouped.length <= 12 &&
         (grouped.some(
           (item) =>
             OTP_SIGNAL.test(accessibleText(item)) ||

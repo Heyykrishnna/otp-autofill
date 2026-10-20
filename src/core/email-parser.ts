@@ -1,10 +1,19 @@
+import { senderAuthentication, verificationDomains } from "./email-evidence"
+import {
+  audienceDomains,
+  currentMessageText,
+  explicitExpiry,
+  recipientAddresses,
+  requestReference,
+  withoutHtmlQuotes,
+} from "./evidence"
 import type { Candidate, EmailMessage, GmailPart } from "./types"
 import { isRecord } from "./validation"
 
 const PHRASE =
   /(?:one[ -]?time\s+(?:password|code)|verification\s+code|security\s+code|sign[ -]?in\s+code|login\s+code|authentication\s+code|passcode|\botp\b)/gi
 const NEGATIVE =
-  /(?:invoice|reference|order|phone|telephone|tracking|account)\s*(?:number|id|no\.?|#)?\s*[:#-]?\s*$/i
+  /(?:invoice|reference|order|phone|telephone|tracking|account|request|session|challenge)\s*(?:number|id|no\.?|#)?\s*[:#-]?\s*$/i
 const STOP_WORDS = new Set([
   "verification",
   "security",
@@ -122,8 +131,20 @@ function parsePart(value: unknown, depth = 0): GmailPart | null {
   return part
 }
 
-function collectText(part: GmailPart): string {
-  if (part.filename) return ""
+function isAttachment(part: GmailPart): boolean {
+  return Boolean(
+    part.filename ||
+    part.mimeType === "message/rfc822" ||
+    part.headers?.some(
+      (header) =>
+        header.name.toLowerCase() === "content-disposition" &&
+        /^attachment\b/i.test(header.value),
+    ),
+  )
+}
+
+function collectText(part: GmailPart, forwarded = false): string {
+  if (isAttachment(part)) return ""
   const charset =
     part.headers
       ?.find((header) => header.name.toLowerCase() === "content-type")
@@ -131,13 +152,40 @@ function collectText(part: GmailPart): string {
   const own = part.body?.data ? decodeBase64Url(part.body.data, charset) : ""
   const text =
     part.mimeType === "text/html"
-      ? htmlToText(own)
+      ? htmlToText(forwarded ? own : withoutHtmlQuotes(own))
       : part.mimeType === "text/plain"
         ? own
         : ""
-  return [text, ...(part.parts ?? []).map(collectText)]
+  return [
+    text,
+    ...(part.parts ?? []).map((child) => collectText(child, forwarded)),
+  ]
     .join("\n")
     .slice(0, 1_000_000)
+}
+
+function actionLinks(part: GmailPart): string {
+  if (isAttachment(part)) return ""
+  const raw = withoutHtmlQuotes(
+    part.body?.data ? decodeBase64Url(part.body.data) : "",
+  )
+  const links =
+    part.mimeType === "text/html"
+      ? [
+          ...raw.matchAll(
+            /<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi,
+          ),
+        ]
+          .filter((match) =>
+            /\b(?:continue|verify|sign[ -]?in|log[ -]?in|authenticate)\b/i.test(
+              htmlToText(match[2] ?? ""),
+            ),
+          )
+          .map((match) => `Continue at ${match[1]}`)
+      : []
+  return [...links, ...(part.parts ?? []).map(actionLinks)]
+    .join("\n")
+    .slice(0, 100_000)
 }
 
 export function parseGmailMessage(value: unknown): EmailMessage | null {
@@ -156,19 +204,65 @@ export function parseGmailMessage(value: unknown): EmailMessage | null {
       payload.headers?.find((item) => item.name.toLowerCase() === name)
         ?.value ?? "",
     ).slice(0, 500)
+  const subject = header("subject")
+  const unquoted = collectText(payload, true)
+  const forwarded =
+    /^(?:fwd?|forwarded)\s*:/i.test(subject) ||
+    /^[- ]*(?:begin forwarded message|forwarded message)[- :]*$/im.test(
+      unquoted,
+    )
+  const text = forwarded ? unquoted : collectText(payload)
+  const rawParts = (part: GmailPart): string => {
+    if (isAttachment(part)) return ""
+    const raw = part.body?.data ? decodeBase64Url(part.body.data) : ""
+    const own = forwarded ? raw : withoutHtmlQuotes(raw)
+    const content =
+      part.mimeType === "text/html"
+        ? `${htmlToText(own)} ${[...own.matchAll(/<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi)].map((match) => match[1]).join(" ")}`
+        : part.mimeType === "text/plain"
+          ? currentMessageText(own)
+          : ""
+    return [content, ...(part.parts ?? []).map(rawParts)]
+      .join("\n")
+      .slice(0, 100_000)
+  }
   return {
     id: value.id,
     receivedAt,
     sender: header("from"),
-    subject: header("subject"),
-    text: collectText(payload),
+    subject,
+    text: forwarded ? text : currentMessageText(text),
+    recipients: recipientAddresses(
+      [header("to"), header("delivered-to"), header("x-original-to")].join(","),
+    ),
+    audiences: audienceDomains(
+      forwarded ? rawParts(payload) : withoutHtmlQuotes(rawParts(payload)),
+    ),
+    forwarded,
+    senderAuthentication: senderAuthentication(
+      payload.headers ?? [],
+      header("from"),
+    ),
+    verificationDomains: verificationDomains(
+      subject,
+      `${forwarded ? unquoted : currentMessageText(text)}\n${actionLinks(payload)}`,
+    ),
   }
 }
 
 export function extractCandidates(message: EmailMessage): Candidate[] {
-  const text = `${message.subject}\n${message.text}`
+  const body = message.forwarded
+    ? message.text
+    : currentMessageText(message.text)
+  const text = `${message.subject}\n${body}`
     .slice(0, 100_000)
     .replace(/[\u00a0\u202f]/g, " ")
+  if (
+    /\b(?:this|your) (?:verification |security )?code (?:has |is )?expired\b/i.test(
+      text,
+    )
+  )
+    return []
   const phrases = [...text.matchAll(PHRASE)]
   if (phrases.length === 0) return []
   const found = new Map<string, Candidate>()
@@ -212,7 +306,14 @@ export function extractCandidates(message: EmailMessage): Candidate[] {
           ),
       )
       .sort((a, b) => a.distance - b.distance)[0]
-    if (!nearest || /https?:|www\.|@/i.test(before)) continue
+    if (!nearest || /(?:https?:\/\/|www\.)\S*$|[\w.+-]+@\S*$/i.test(before))
+      continue
+    if (
+      /(?:old|previous|expired|unused)\s+(?:verification\s+)?code\s*[:#-]?\s*$/i.test(
+        before,
+      )
+    )
+      continue
     if (/^\d{4}$/.test(code) && /(?:year|copyright|©)\s*$/i.test(before))
       continue
     const confidence = nearest.distance <= 24 ? 0.98 : 0.85
@@ -226,6 +327,16 @@ export function extractCandidates(message: EmailMessage): Candidate[] {
         receivedAt: message.receivedAt,
         confidence,
         subject: message.subject,
+        account: message.account,
+        recipients: message.recipients,
+        audiences: message.audiences ?? audienceDomains(body),
+        requestId: requestReference(text),
+        expiresAt: explicitExpiry(text, message.receivedAt),
+        manualOnly: message.forwarded,
+        senderAuthentication: message.senderAuthentication,
+        verificationDomains:
+          message.verificationDomains ??
+          verificationDomains(message.subject, body),
       })
   }
   return [...found.values()].slice(0, 8)

@@ -41,6 +41,9 @@ function Laboratory() {
         <option value="negative">Unrelated fields</option>
       </select>
       <form
+        data-otp-recipient={
+          new URLSearchParams(location.search).get("recipient") ?? undefined
+        }
         onSubmit={(event) => {
           event.preventDefault()
           setSubmitted(true)

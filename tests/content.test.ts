@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { fillTarget } from "../src/content/autofill"
+import { verificationHints } from "../src/content/context"
 import { detectTargets } from "../src/content/detector"
 
 beforeEach(() => {
@@ -78,4 +79,83 @@ describe("field detection and autofill", () => {
     target.inputs[0]?.remove()
     expect(fillTarget(target, "482193")).toBe(false)
   })
+})
+
+it("detects supported OTP fields inside an open shadow root", () => {
+  document.body.innerHTML = '<div id="host"></div>'
+  const host = document.getElementById("host")
+  if (!host) throw new Error("Expected host")
+  host.attachShadow({ mode: "open" }).innerHTML =
+    '<input aria-label="Verification code" maxlength="6" />'
+  const target = detectTargets()[0]
+  if (!target) throw new Error("Expected shadow target")
+  expect(fillTarget(target, "482193")).toBe(true)
+})
+
+it("supports a ten-character split alphanumeric form", () => {
+  document.body.innerHTML = `<fieldset aria-label="Verification code">${Array.from({ length: 10 }, () => '<input maxlength="1" />').join("")}</fieldset>`
+  const target = detectTargets()[0]
+  if (!target) throw new Error("Expected split target")
+  expect(fillTarget(target, "UCSIAGUBQQ")).toBe(true)
+  expect(target.inputs.map((input) => input.value).join("")).toBe("UCSIAGUBQQ")
+})
+
+it("uses explicit recipient and request evidence without treating masked addresses as an account", () => {
+  document.body.innerHTML =
+    '<form data-otp-recipient="alice+login@gmail.com" data-otp-request-id="request-123"><input name="otp" maxlength="6" /><input type="email" value="bob@gmail.com" /></form>'
+  let target = detectTargets()[0]
+  if (!target) throw new Error("Expected target")
+  expect(verificationHints(target)).toEqual({
+    recipient: "alice+login@gmail.com",
+    requestId: "request-123",
+  })
+  document.body.innerHTML =
+    '<form><p>We sent a code to a***@gmail.com.</p><input name="otp" maxlength="6" /></form>'
+  target = detectTargets()[0]
+  if (!target) throw new Error("Expected target")
+  expect(verificationHints(target)).toEqual({})
+})
+
+it("sends Enter and validates the form before submitting, without submitting a second time", async () => {
+  const { enterTarget } = await import("../src/content/submit")
+  document.body.innerHTML =
+    '<form><input name="otp" maxlength="6" required pattern="[0-9]{6}" /><button type="submit">Verify</button></form>'
+  const target = detectTargets()[0]
+  const form = document.querySelector("form")
+  if (!target || !form) throw new Error("Expected OTP form")
+  const submitted = new WeakSet<HTMLFormElement>()
+  const submit = vi.fn((event: Event) => {
+    event.preventDefault()
+    submitted.add(form)
+  })
+  form.addEventListener("submit", submit)
+  const key = vi.fn()
+  target.inputs[0]?.addEventListener("keydown", key)
+  expect(fillTarget(target, "482193")).toBe(true)
+  expect(enterTarget(target, "482193", submitted)).toBe(true)
+  expect(key).toHaveBeenCalledOnce()
+  expect(submit).toHaveBeenCalledOnce()
+  expect(enterTarget(target, "482193", submitted)).toBe(false)
+  expect(submit).toHaveBeenCalledOnce()
+})
+
+it("respects prevented Enter, changed values and incomplete forms", async () => {
+  const { enterTarget } = await import("../src/content/submit")
+  document.body.innerHTML =
+    '<form><input name="otp" maxlength="6" /><input type="email" required /><button type="submit">Verify</button></form>'
+  const target = detectTargets()[0]
+  if (!target) throw new Error("Expected OTP form")
+  const submit = vi.fn((event: Event) => event.preventDefault())
+  document.querySelector("form")?.addEventListener("submit", submit)
+  fillTarget(target, "482193")
+  expect(enterTarget(target, "482193", new WeakSet())).toBe(false)
+  const email = document.querySelector<HTMLInputElement>('[type="email"]')
+  if (!email) throw new Error("Expected email field")
+  email.value = "alice@gmail.com"
+  target.inputs[0]?.addEventListener("keydown", (event) =>
+    event.preventDefault(),
+  )
+  expect(enterTarget(target, "482193", new WeakSet())).toBe(true)
+  expect(submit).not.toHaveBeenCalled()
+  expect(enterTarget(target, "987654", new WeakSet())).toBe(false)
 })

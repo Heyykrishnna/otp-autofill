@@ -1,3 +1,4 @@
+import { emailAddress } from "../core/evidence"
 import { parseGmailMessage } from "../core/email-parser"
 import { GMAIL_SCOPE, type EmailMessage } from "../core/types"
 import { isRecord } from "../core/validation"
@@ -45,6 +46,9 @@ export class GmailClient {
     private readonly tokenProvider = getToken,
     private readonly request: typeof fetch = (input, init) =>
       fetch(input, init),
+    private readonly invalidate: (token: string) => Promise<void> = (token) =>
+      chrome.identity.removeCachedAuthToken({ token }),
+    private readonly mailbox?: string,
   ) {}
 
   private async json(
@@ -57,7 +61,7 @@ export class GmailClient {
     let response: Response
     try {
       response = await this.request(
-        `https://gmail.googleapis.com/gmail/v1/users/me/${path}`,
+        `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(this.mailbox ?? "me")}/${path}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
@@ -71,7 +75,7 @@ export class GmailClient {
       throw new GmailError("temporary")
     }
     if (response.status === 401) {
-      await chrome.identity.removeCachedAuthToken({ token })
+      await this.invalidate(token)
       if (retry) return this.json(path, signal, false)
       throw new GmailError("authorization")
     }
@@ -114,10 +118,14 @@ export class GmailClient {
     }
   }
 
-  async verifyConnection(signal: AbortSignal): Promise<void> {
+  async verifyConnection(signal: AbortSignal): Promise<string> {
     const profile = await this.json("profile?fields=emailAddress", signal)
     if (!isRecord(profile) || typeof profile.emailAddress !== "string")
       throw new GmailError("authorization")
+    const address = emailAddress(profile.emailAddress)
+    if (!address || (this.mailbox && address !== this.mailbox))
+      throw new GmailError("authorization")
+    return address
   }
 
   async discover(

@@ -13,6 +13,7 @@
 ## Live validation gate
 
 - [ ] Complete the controlled Gmail checklist in `testing.md` using real OAuth and a test account.
+- [ ] Validate separate Desktop OAuth consent, multiple real inboxes, partial failure, restart and revocation using controlled accounts.
 - [ ] Test actual Chrome site-permission prompts, denial/revocation, and signed-in/out browser profiles.
 - [ ] Exercise worker suspension, browser restarts, delayed delivery, resend overlap, and supported live websites.
 - [ ] Confirm no incorrect automatic fills or unintended submissions in the representative beta suite.

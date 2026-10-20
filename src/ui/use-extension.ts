@@ -1,23 +1,35 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { Snapshot } from "../core/types"
-import { isRecord } from "../core/validation"
+import { isRecord, isSnapshot } from "../core/validation"
 
 export function useExtension() {
+  const refreshing = useRef(false)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [error, setError] = useState("")
+  const [connectionError, setConnectionError] = useState("")
   const [busy, setBusy] = useState(false)
   const refresh = useCallback(async () => {
+    if (refreshing.current) return
+    refreshing.current = true
     try {
-      const value: Snapshot = await chrome.runtime.sendMessage({
+      const value: unknown = await chrome.runtime.sendMessage({
         type: "SNAPSHOT",
       })
-      if (!value || !value.settings) throw new Error("unavailable")
+      if (!isSnapshot(value)) {
+        setConnectionError(
+          "The settings page and background worker are out of sync. Reload OTP Autofill in chrome://extensions, close this page and reopen Settings.",
+        )
+        return
+      }
       setSnapshot(value)
+      setConnectionError("")
     } catch {
-      setError(
+      setConnectionError(
         "Could not reach the extension. Reload it from chrome://extensions.",
       )
+    } finally {
+      refreshing.current = false
     }
   }, [])
 
@@ -27,7 +39,11 @@ export function useExtension() {
       void refresh()
     }
     chrome.storage.onChanged.addListener(onChanged)
-    return () => chrome.storage.onChanged.removeListener(onChanged)
+    const timer = setInterval(() => void refresh(), 3000)
+    return () => {
+      clearInterval(timer)
+      chrome.storage.onChanged.removeListener(onChanged)
+    }
   }, [refresh])
 
   async function act(message: Record<string, unknown>): Promise<void> {
@@ -72,5 +88,31 @@ export function useExtension() {
     }
   }
 
-  return { snapshot, error, busy, act, enableSite }
+  async function addAccount(): Promise<void> {
+    setError("")
+    try {
+      if (
+        !(await chrome.permissions.request({ origins: ["http://127.0.0.1/*"] }))
+      ) {
+        setError(
+          "The local inbox companion needs loopback permission. No additional inbox was connected.",
+        )
+        return
+      }
+      await act({ type: "ADD_ACCOUNT" })
+    } catch {
+      setError(
+        "Start the local companion and check its Desktop OAuth configuration before adding an inbox.",
+      )
+    }
+  }
+
+  return {
+    snapshot,
+    error: error || connectionError,
+    busy,
+    act,
+    enableSite,
+    addAccount,
+  }
 }

@@ -23,6 +23,9 @@ export interface VerificationContext {
   startedAt: number
   hostname: string
   constraints: FieldConstraints
+  recipient?: string
+  requestId?: string
+  strictAfter?: boolean
 }
 
 export interface Candidate {
@@ -33,6 +36,14 @@ export interface Candidate {
   receivedAt: number
   confidence: number
   subject: string
+  account?: string
+  recipients?: string[]
+  audiences?: string[]
+  requestId?: string
+  expiresAt?: number
+  manualOnly?: boolean
+  senderAuthentication?: "pass" | "fail" | "unknown"
+  verificationDomains?: string[]
 }
 
 export interface CandidateSummary {
@@ -40,6 +51,8 @@ export interface CandidateSummary {
   sender: string
   receivedAt: number
   length: number
+  account?: string
+  reason?: string
 }
 
 export interface FlowStatus {
@@ -55,6 +68,30 @@ export interface Settings {
   autofill: boolean
   connected: boolean
   revocationPending: boolean
+  accountEmail?: string
+  companionEnabled?: boolean
+  pressEnter?: boolean
+  enterDelayMs?: number
+}
+
+export interface MailboxAccount {
+  id: string
+  email: string
+  source: "chrome" | "companion"
+  available: boolean
+}
+
+export interface MessageSource {
+  discover(
+    startedAt: number,
+    seen: Set<string>,
+    signal: AbortSignal,
+  ): Promise<EmailMessage[] | Discovery>
+}
+
+export interface Discovery {
+  messages: EmailMessage[]
+  warnings: string[]
 }
 
 export interface Snapshot {
@@ -66,6 +103,8 @@ export interface Snapshot {
   origin: string | null
   tabId: number | null
   sites: string[]
+  accounts: MailboxAccount[]
+  accountError: string | null
 }
 
 export interface EmailMessage {
@@ -74,6 +113,12 @@ export interface EmailMessage {
   sender: string
   subject: string
   text: string
+  account?: string
+  recipients?: string[]
+  audiences?: string[]
+  forwarded?: boolean
+  senderAuthentication?: "pass" | "fail" | "unknown"
+  verificationDomains?: string[]
 }
 
 export interface GmailPart {
@@ -91,4 +136,6 @@ export const DEFAULT_SETTINGS: Settings = {
   autofill: true,
   connected: false,
   revocationPending: false,
+  pressEnter: true,
+  enterDelayMs: 150,
 }

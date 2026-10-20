@@ -15,21 +15,22 @@ const context: VerificationContext = {
 const store = new Map<string, unknown>()
 const tabUrl = "https://login.example.com/verify"
 let tabActive = true
+let settings: Record<string, unknown>
 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(context.startedAt + 10_000)
   store.clear()
   tabActive = true
+  settings = { connected: true, autofill: true }
   vi.stubGlobal("chrome", {
     storage: {
       local: {
-        get: vi.fn(async () => ({
-          settings: { connected: true, autofill: true },
-        })),
+        get: vi.fn(async () => ({ settings })),
         set: vi.fn(),
       },
       session: {
+        get: vi.fn(async (key: string) => ({ [key]: store.get(key) })),
         set: vi.fn(async (values: Record<string, unknown>) => {
           for (const [key, value] of Object.entries(values))
             store.set(key, value)
@@ -162,4 +163,194 @@ describe("verification attempt orchestration", () => {
     )
     expect(pollDelay(100, true)).toBe(20_000)
   })
+})
+
+describe("overlapping and repeated attempts", () => {
+  const secondContext = {
+    ...context,
+    id: "6c5a1b76-dbd9-44be-b621-fc3dbfe558c8",
+  }
+  it("registers inactive forms without reading Gmail and asks before unbound overlapping logins", async () => {
+    const { client, request } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193"),
+    ])
+    const coordinator = new Coordinator(client)
+    tabActive = false
+    await coordinator.register(2, "doc2", tabUrl, secondContext)
+    expect(request).not.toHaveBeenCalled()
+    tabActive = true
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "ambiguous",
+    })
+    expect(store.get("flow:1")).toMatchObject({
+      candidates: [
+        { reason: "Overlapping login attempts: choose the intended email" },
+      ],
+    })
+  })
+  it("separates overlapping attempts when the email carries the exact request reference", async () => {
+    const { client } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193. Request ID: login_one"),
+    ])
+    const coordinator = new Coordinator(client)
+    await coordinator.register(2, "doc2", tabUrl, {
+      ...secondContext,
+      requestId: "login_two",
+    })
+    expect(
+      await coordinator.poll(1, "doc1", tabUrl, {
+        ...context,
+        requestId: "login_one",
+      }),
+    ).toMatchObject({ state: "identified", code: "482193" })
+  })
+  it("does not replay a filled code from a delayed duplicate email after resend", async () => {
+    const { client } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193"),
+      { messages: [{ id: "duplicate" }] },
+      gmailMessage("Verification code: 482193", {
+        id: "duplicate",
+        internalDate: String(context.startedAt + 20_000),
+      }),
+    ])
+    const coordinator = new Coordinator(client)
+    await coordinator.poll(1, "doc1", tabUrl, context)
+    await coordinator.event(1, "doc1", context.id, "filled")
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(
+      await coordinator.poll(1, "doc1", tabUrl, {
+        ...secondContext,
+        startedAt: Date.now(),
+        strictAfter: true,
+      }),
+    ).toEqual({ state: "waiting" })
+    expect(JSON.stringify([...store.values()])).not.toContain("482193")
+  })
+  it("does not let a late registration replace a newer request", async () => {
+    const { client, request } = clientFor([])
+    const coordinator = new Coordinator(client)
+    await coordinator.register(1, "doc1", tabUrl, {
+      ...secondContext,
+      startedAt: context.startedAt + 5000,
+    })
+    expect(await coordinator.register(1, "doc1", tabUrl, context)).toEqual({
+      state: "cancelled",
+    })
+    expect(store.get("flow:1")).toMatchObject({ id: secondContext.id })
+    expect(request).not.toHaveBeenCalled()
+  })
+  it("requires a manual choice if another authorized inbox could not be searched", async () => {
+    const source = {
+      discover: vi.fn(async () => ({
+        messages: [
+          {
+            id: "message1",
+            sender: "verify@example.com",
+            subject: "Verification",
+            text: "Verification code: 482193",
+            receivedAt: Date.now(),
+            account: "alice@gmail.com",
+          },
+        ],
+        warnings: ["Another inbox is unavailable"],
+      })),
+    }
+    const coordinator = new Coordinator(source)
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "ambiguous",
+    })
+    expect(store.get("flow:1")).toMatchObject({
+      candidates: [
+        {
+          account: "alice@gmail.com",
+          reason: "An inbox could not be searched: confirm a known email",
+        },
+      ],
+    })
+  })
+})
+
+it("retains consumed message IDs across a worker restart without storing the code", async () => {
+  const { client } = clientFor([
+    { messages: [{ id: "message1" }] },
+    gmailMessage("Verification code: 482193"),
+    { messages: [{ id: "message1" }] },
+    gmailMessage("Verification code: 482193"),
+  ])
+  const first = new Coordinator(client)
+  await first.poll(1, "doc1", tabUrl, context)
+  await first.event(1, "doc1", context.id, "filled")
+  const restarted = new Coordinator(client)
+  expect(
+    await restarted.poll(1, "doc1", tabUrl, {
+      ...context,
+      id: "6c5a1b76-dbd9-44be-b621-fc3dbfe558c8",
+    }),
+  ).toEqual({ state: "waiting" })
+  expect(JSON.stringify([...store.values()])).not.toContain("482193")
+})
+
+it("shows a third-party forwarded candidate without needing a sender mapping", async () => {
+  const source = {
+    discover: vi.fn(async () => [
+      {
+        id: "message1",
+        sender: "verify@provider.test",
+        subject: "Fwd: Verification",
+        text: "Verification code: 482193. Continue at https://login.example.com",
+        receivedAt: Date.now(),
+        forwarded: true,
+      },
+    ]),
+  }
+  const coordinator = new Coordinator(source)
+  expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+    state: "ambiguous",
+  })
+  expect(store.get("flow:1")).toMatchObject({
+    candidates: [
+      {
+        sender: "provider.test",
+        reason: "Forwarded message: confirm the code is current",
+      },
+    ],
+  })
+})
+
+it("rechecks the Enter policy after filling and rejects disabled, inactive or stale requests", async () => {
+  const { client } = clientFor([
+    { messages: [{ id: "message1" }] },
+    gmailMessage("Verification code: 482193"),
+  ])
+  const coordinator = new Coordinator(client)
+  await coordinator.poll(1, "doc1", tabUrl, context)
+  await coordinator.event(1, "doc1", context.id, "filled")
+  expect(await coordinator.afterFillPolicy(1, "doc1", context.id)).toEqual({
+    pressEnter: true,
+    enterDelayMs: 150,
+  })
+  expect(
+    await coordinator.afterFillPolicy(1, "wrong-document", context.id),
+  ).toMatchObject({ pressEnter: false })
+  settings = { ...settings, pressEnter: false }
+  expect(
+    await coordinator.afterFillPolicy(1, "doc1", context.id),
+  ).toMatchObject({ pressEnter: false })
+  settings = { ...settings, pressEnter: true, enterDelayMs: 500 }
+  tabActive = false
+  expect(
+    await coordinator.afterFillPolicy(1, "doc1", context.id),
+  ).toMatchObject({ pressEnter: false })
+  tabActive = true
+  expect(await coordinator.afterFillPolicy(1, "doc1", context.id)).toEqual({
+    pressEnter: true,
+    enterDelayMs: 500,
+  })
+  await coordinator.stop(1)
+  expect(
+    await coordinator.afterFillPolicy(1, "doc1", context.id),
+  ).toMatchObject({ pressEnter: false })
 })

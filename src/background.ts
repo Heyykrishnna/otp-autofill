@@ -1,3 +1,5 @@
+import { companionCall } from "./background/companion"
+import { Mailboxes } from "./background/mailboxes"
 import { Coordinator } from "./background/coordinator"
 import {
   disconnectGmail,
@@ -31,7 +33,12 @@ let syncing = Promise.resolve()
 const ready = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
   chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
-  chrome.storage.session.clear(),
+  (async () => {
+    const values = await chrome.storage.session.get(null)
+    await chrome.storage.session.remove(
+      Object.keys(values).filter((key) => key.startsWith("flow:")),
+    )
+  })(),
 ])
 
 function sync(): Promise<void> {
@@ -56,6 +63,7 @@ async function snapshot(): Promise<Snapshot> {
   const permissions = await chrome.permissions.getAll()
   const flow: unknown = tab?.id === undefined ? null : values[`flow:${tab.id}`]
   return {
+    ...(await new Mailboxes().accounts()),
     systemError,
     configured: isConfigured(),
     settings: await readSettings(),
@@ -101,7 +109,9 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
       const generation = ++authGeneration
       try {
         const token = await getToken(true)
-        await new GmailClient().verifyConnection(AbortSignal.timeout(15_000))
+        const accountEmail = await new GmailClient().verifyConnection(
+          AbortSignal.timeout(15_000),
+        )
         if (generation !== authGeneration || disconnecting) {
           await chrome.identity.removeCachedAuthToken({ token })
           return {
@@ -109,7 +119,11 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
             error: "Connection was cancelled by a newer account action.",
           }
         }
-        await updateSettings({ connected: true, revocationPending: false })
+        await updateSettings({
+          connected: true,
+          revocationPending: false,
+          accountEmail,
+        })
         const tab = await activeTab()
         if (tab?.id !== undefined)
           await chrome.tabs
@@ -121,18 +135,110 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
       }
     }
     case "DISCONNECT": {
+      const settings = await readSettings()
       disconnecting = true
       authGeneration++
       try {
-        await updateSettings({ connected: false })
+        await updateSettings({
+          connected: false,
+          companionEnabled: false,
+          accountEmail: undefined,
+        })
         await coordinator.stopAll("permission_required")
         await stopContent()
-        const revoked = await disconnectGmail()
+        let companionRevoked = true
+        if (settings.companionEnabled) {
+          try {
+            companionRevoked =
+              (await companionCall({ operation: "disconnect" })).revoked ===
+              true
+          } catch {
+            companionRevoked = false
+          }
+        }
+        const revoked =
+          (settings.connected ? await disconnectGmail() : true) &&
+          companionRevoked
+        await chrome.storage.session.remove("companionSession")
         await updateSettings({ connected: false, revocationPending: !revoked })
         return { ok: true, revoked }
       } finally {
         disconnecting = false
       }
+    }
+    case "ADD_ACCOUNT": {
+      if (
+        !(await chrome.permissions.contains({
+          origins: ["http://127.0.0.1/*"],
+        }))
+      )
+        return {
+          ok: false,
+          error: "Approve the local companion connection first.",
+        }
+      await updateSettings({ companionEnabled: true })
+      let value: Record<string, unknown>
+      try {
+        value = await companionCall({ operation: "authorize" })
+      } catch {
+        return {
+          ok: false,
+          error:
+            "Start npm run companion with a Desktop OAuth client configured, then retry adding the inbox.",
+        }
+      }
+      const url = typeof value.url === "string" ? new URL(value.url) : null
+      if (
+        !url ||
+        url.origin !== "https://accounts.google.com" ||
+        url.pathname !== "/o/oauth2/v2/auth" ||
+        url.searchParams.get("response_type") !== "code" ||
+        url.searchParams.get("scope") !==
+          "https://www.googleapis.com/auth/gmail.readonly"
+      )
+        return {
+          ok: false,
+          error:
+            "The local companion returned an invalid authorization request.",
+        }
+      await coordinator.stopAll()
+      await stopContent()
+      await chrome.tabs.create({ url: url.href })
+      return { ok: true }
+    }
+    case "REMOVE_ACCOUNT": {
+      if (typeof message.id !== "string") return { ok: false }
+      await coordinator.stopAll()
+      await stopContent()
+      let revoked = true
+      if (message.id === "chrome") {
+        await updateSettings({ connected: false, accountEmail: undefined })
+        revoked = await disconnectGmail()
+      } else if (/^[a-f0-9]{32}$/.test(message.id)) {
+        revoked =
+          (await companionCall({ operation: "remove", id: message.id }))
+            .revoked === true
+      } else return { ok: false }
+      if (!revoked) await updateSettings({ revocationPending: true })
+      return { ok: true }
+    }
+    case "SET_AFTER_FILL": {
+      if (
+        typeof message.pressEnter !== "boolean" ||
+        typeof message.enterDelayMs !== "number" ||
+        !Number.isInteger(message.enterDelayMs) ||
+        message.enterDelayMs < 0 ||
+        message.enterDelayMs > 2000
+      )
+        return {
+          ok: false,
+          error: "Choose an Enter delay between 0 and 2000 milliseconds.",
+        }
+      await updateSettings({
+        pressEnter: message.pressEnter,
+        enterDelayMs: message.enterDelayMs,
+      })
+      return { ok: true }
     }
     case "SET_AUTOFILL": {
       if (typeof message.value !== "boolean") return { ok: false }
@@ -227,6 +333,30 @@ async function handle(
     !siteOrigin(sender.url)
   )
     return { ok: false }
+  if (
+    message.type === "AFTER_FILL_RESULT" &&
+    typeof message.id === "string" &&
+    (message.result === "sent" ||
+      message.result === "skipped" ||
+      message.result === "failed")
+  ) {
+    await coordinator.afterFillResult(
+      tabId,
+      sender.documentId,
+      message.id,
+      message.result,
+    )
+    return { ok: true }
+  }
+  if (message.type === "AFTER_FILL_POLICY" && typeof message.id === "string")
+    return coordinator.afterFillPolicy(tabId, sender.documentId, message.id)
+  if (message.type === "REGISTER" && isContext(message.context))
+    return coordinator.register(
+      tabId,
+      sender.documentId,
+      sender.url,
+      message.context,
+    )
   if (message.type === "POLL" && isContext(message.context)) {
     if (disconnecting) return { state: "permission_required" }
     return coordinator.poll(

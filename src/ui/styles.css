@@ -200,6 +200,7 @@ h1 span {
 }
 .toggle-row {
   display: flex;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
   padding: 20px 0;
@@ -208,6 +209,7 @@ h1 span {
   font-size: 11px;
 }
 .switch {
+  flex: 0 0 37px;
   width: 37px;
   height: 22px;
   border: 0;
@@ -423,4 +425,20 @@ code {
   * {
     transition: none !important;
   }
+}
+
+.settings-input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 8px 0 16px;
+  border: 1px solid #b9c9c9;
+  border-radius: 8px;
+  background: #fff;
+  color: #173a36;
+  font: inherit;
+}
+.site-list small {
+  display: block;
+  overflow-wrap: anywhere;
 }

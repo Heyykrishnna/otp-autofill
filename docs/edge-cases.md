@@ -1,0 +1,48 @@
+# Edge-case behavior
+
+This is the current behavior of the edge-case update. The original v0.1.0 PDF is a historical design snapshot; the current privacy, architecture and multi-inbox guides describe the updated implementation.
+
+| Case                                   | Before this update                                                                           | Current behavior and limits                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Third-party OTP services            | Unrelated sender domains were rejected.                                                      | No mapping setup is needed. Automatic inference combines a verification/action domain, aligned Gmail sender-authentication results, addressed authorized inbox, current request, format and time. Missing or competing evidence needs a choice; brand names alone never establish ownership.                                 |
+| 2. Multiple OTPs from one provider     | Different codes were ambiguous; attempts had no recipient/request correlation.               | Verified inbox identity, recipient hints and explicit request references narrow candidates. Forms register before reading mail, so overlapping unbound requests trigger choice. If the issuer supplies no distinguishing information, automatic session attribution is impossible.                                           |
+| 3. Different providers arrive together | Same-domain matching already filtered unrelated mail.                                        | Domain and automatic website-intent rules run independently per form and authorized inbox. Each flow is tied to its tab/document. Several inboxes are searched with bounded concurrency; failed reads prevent confident automatic selection.                                                                                 |
+| 4. Multiple numbers in one email       | Phrase proximity and negative-number contexts already filtered common noise.                 | Expanded request/session/ID exclusions, quoted-history handling and context checks preserve real codes near email addresses while rejecting common unrelated numbers. Multiple independently plausible codes remain a choice.                                                                                                |
+| 5. Different code formats              | Grouped digits, uppercase letter codes and mixed case-sensitive codes were supported.        | Existing formats remain supported, including `482 193`, `UCSIAGUBQQ` and mixed letter/digit tokens. Supported hyphenated tokens and input patterns remain conservative.                                                                                                                                                      |
+| 6. Delayed or expired OTP              | Three-minute message age and two-minute attempt deadline existed.                            | Explicit relative lifetimes such as “expires in 30 seconds” also constrain eligibility. Clearly expired messages are rejected. The extension cannot discover a server-side expiry that the issuer does not expose.                                                                                                           |
+| 7. Resends and duplicate emails        | Codes were deduplicated inside one attempt, but old overlap could survive a resend.          | Resend starts a strict window at the click time. Used message IDs in trusted session storage and short-lived opaque in-memory code fingerprints prevent replay across attempts during their retention window. These are not a permanent OTP history.                                                                         |
+| 8. Split and unusual forms             | Single fields, React state, dynamic forms and 4-8 split inputs were supported.               | Split groups support 4-12 inputs; open shadow roots are scanned within bounded limits. Closed shadow roots, unsupported editors and iframe-only forms still need manual entry.                                                                                                                                               |
+| 9. Multiple Gmail accounts             | Only Chrome Identity's current account was used.                                             | An optional local companion adds up to five separately authorized inboxes, alongside the existing Chrome account. Every account is verified by Gmail and bound to its own requests. Recipient hints disambiguate; equal codes from different accounts are not merged. Desktop OAuth configuration is required for this mode. |
+| 10. Threads and forwarded messages     | Individual messages and nested MIME were parsed, but quoted history could become candidates. | Individual message timestamps remain authoritative for receipt. Quoted reply history, named/unnamed attachments and attached messages are excluded from current-message extraction. Recognized forwarded messages require confirmation because their receipt time cannot prove the original code is fresh.                   |
+| 11. Tabs and navigation                | Active tab, URL, document, field and deadline checks existed.                                | Registration detects overlapping requests before delivery. Late registrations cannot replace newer requests. Candidate reservation prevents double delivery across overlapping flows; navigation and manual typing still cancel stale work.                                                                                  |
+| 12. Failures and ambiguity             | Bounded retries and metadata-only candidate choice existed.                                  | Per-inbox failures are surfaced. A partial search requires manual confirmation even if one candidate looks unique. Consent state, PKCE, scope, account binding, revocation and loopback access have dedicated checks.                                                                                                        |
+
+## What makes a match automatic
+
+All site, time, format, account and known request-reference checks must pass. There must be one eligible code with a high extraction rule score. The email must not require forwarding/sender confirmation; the search must be complete; the code must not have been consumed; and unresolved overlapping requests must not exist.
+
+An exact request reference can separate concurrent attempts. If the form supplies a reference but the email omits it, confirmation is required. Third-party senders that identify several verification sites also require confirmation. Merely choosing the newest email cannot. The amount of manual fallback depends on the evidence websites and senders provide; no “almost never” rate or measured accuracy is claimed.
+
+## Integration hints for website owners
+
+The content script recognizes optional form or OTP-input attributes:
+
+| Attribute                                       | Meaning                                                                                                         |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `data-otp-recipient`                            | Full intended email address, used only to correlate the form with an authorized inbox.                          |
+| `data-otp-request-id` or `data-verification-id` | Non-secret reference for this verification request. A matching email can include `Request ID: reference_value`. |
+
+Use a different reference on resend. Do not put passwords, access tokens or session cookies in these attributes. Without these hooks, supported email inputs and clearly labeled recipient text can still provide recipient evidence. Masked addresses are not guessed.
+
+## Controls and setup
+
+- Third-party senders are analyzed automatically; sender mapping forms and saved mapping logic were removed.
+- Settings → After filling controls Enter and its delay. It is enabled by default with a 150 ms delay.
+- Add each companion inbox through its own Google consent screen. Existing single-account Chrome authorization still works without a companion.
+- Follow [multi-inbox setup](multi-inbox-setup.md) before enabling that mode.
+- If the popup needs your choice, review the sender, inbox, received time and warning; choose once or enter the OTP yourself.
+- Real sites can continue when inputs change. The extension also sends Enter when enabled, with validated standard-form fallback and duplicate-submission checks. Disable Enter if the site already continues through a non-submit-event mechanism.
+
+## Verification scope
+
+Automated tests use controlled email and OAuth responses. They exercise real Chromium extension messaging, React fields and the local companion protocol. Live multi-account consent, real provider templates, Google administrator restrictions and representative precision/latency remain separate acceptance checks.

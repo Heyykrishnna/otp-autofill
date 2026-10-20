@@ -20,7 +20,9 @@ const STATE_LABELS = {
 
 export default function Popup() {
   const { snapshot, error, busy, act, enableSite } = useExtension()
-  const connected = snapshot?.settings.connected ?? false
+  const connected =
+    (snapshot?.settings.connected ?? false) ||
+    Boolean(snapshot?.accounts.some((account) => account.available))
   const flow = snapshot?.flow
   const enabled = snapshot?.settings.autofill ?? true
 
@@ -76,8 +78,8 @@ export default function Popup() {
           <>
             <p className="permission-copy">
               With your permission, OTP Autofill reads recent verification
-              emails during an active attempt. Messages are processed in your
-              browser.
+              emails during an active attempt. Messages are processed locally.
+              Enter after filling can be changed in Settings.
             </p>
             <button
               className="primary"
@@ -96,10 +98,22 @@ export default function Popup() {
           </p>
         )}
       </section>
+      {snapshot?.accounts.length ? (
+        <p className="permission-copy">
+          Authorized inboxes:{" "}
+          {snapshot.accounts.map((account) => account.email).join(", ")}. Manage
+          accounts in Settings.
+        </p>
+      ) : null}
+      {snapshot?.accountError && (
+        <p className="notice" role="status">
+          {snapshot.accountError}
+        </p>
+      )}
       <section className="toggle-row">
         <div>
           <h2>Automatic fill</h2>
-          <p>Fill a reliable match. You submit.</p>
+          <p>Fill a reliable match on approved sites.</p>
         </div>
         <button
           className={`switch ${enabled ? "on" : ""}`}
@@ -113,6 +127,13 @@ export default function Popup() {
           <span />
         </button>
       </section>
+      <p className="permission-copy">
+        After filling:{" "}
+        {snapshot?.settings.pressEnter === false
+          ? "wait for you to continue"
+          : "press Enter automatically"}
+        . Change this in Settings.
+      </p>
       <section className="flow-panel" aria-label="Current page">
         <div className="section-label">
           <span>ON THIS PAGE</span>
@@ -175,6 +196,8 @@ export default function Popup() {
               >
                 <span>
                   <strong>{candidate.sender}</strong>
+                  {candidate.account && <small>{candidate.account}</small>}
+                  {candidate.reason && <small>{candidate.reason}</small>}
                   <small>
                     {new Date(candidate.receivedAt).toLocaleTimeString([], {
                       hour: "2-digit",

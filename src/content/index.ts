@@ -1,6 +1,8 @@
 import { hasExpired, isTerminal, pollDelay } from "../core/lifecycle"
 import type { FlowState, VerificationContext } from "../core/types"
 import { isFlowState, isRecord } from "../core/validation"
+import { enterTarget } from "./submit"
+import { verificationHints } from "./context"
 import { fillTarget } from "./autofill"
 import { detectTargets, type OtpTarget } from "./detector"
 
@@ -23,6 +25,18 @@ function startController(): void {
   let stopped = false
   let filled = false
   let permissionPaused = false
+  let strictAfter = false
+  let requestedAt: number | undefined
+  let enterTimer: ReturnType<typeof setTimeout> | undefined
+  const submittedForms = new WeakSet<HTMLFormElement>()
+  document.addEventListener(
+    "submit",
+    (event) => {
+      if (event.target instanceof HTMLFormElement)
+        submittedForms.add(event.target)
+    },
+    true,
+  )
 
   async function send(message: unknown): Promise<unknown> {
     try {
@@ -36,11 +50,14 @@ function startController(): void {
 
   function finish(state: FlowState): void {
     stopped = true
+    clearTimeout(enterTimer)
     clearTimeout(timer)
     if (context) void send({ type: "FLOW_EVENT", id: context.id, state })
   }
 
-  function reset(): void {
+  function reset(resend = false): void {
+    strictAfter = resend
+    requestedAt = resend ? Date.now() : undefined
     if (context) finish("cancelled")
     context = null
     target = null
@@ -55,6 +72,12 @@ function startController(): void {
     const detected = detectTargets()
     return Boolean(
       target &&
+      (!context ||
+        JSON.stringify(verificationHints(target)) ===
+          JSON.stringify({
+            ...(context.recipient ? { recipient: context.recipient } : {}),
+            ...(context.requestId ? { requestId: context.requestId } : {}),
+          })) &&
       pageUrl === location.href &&
       target.inputs.every((input) => input.isConnected) &&
       detected.length === 1 &&
@@ -70,7 +93,7 @@ function startController(): void {
     )
   }
 
-  function apply(code: string, id: string): boolean {
+  async function apply(code: string, id: string): Promise<boolean> {
     if (
       !context ||
       id !== context.id ||
@@ -85,7 +108,43 @@ function startController(): void {
     if (result) {
       filled = true
       clearTimeout(timer)
-      void send({ type: "FLOW_EVENT", id, state: "filled" })
+      await send({ type: "FLOW_EVENT", id, state: "filled" })
+      const policy = await send({ type: "AFTER_FILL_POLICY", id })
+      if (
+        isRecord(policy) &&
+        policy.pressEnter === true &&
+        typeof policy.enterDelayMs === "number" &&
+        Number.isInteger(policy.enterDelayMs) &&
+        policy.enterDelayMs >= 0 &&
+        policy.enterDelayMs <= 2000
+      ) {
+        clearTimeout(enterTimer)
+        enterTimer = setTimeout(() => {
+          void (async () => {
+            const current = await send({ type: "AFTER_FILL_POLICY", id })
+            if (
+              isRecord(current) &&
+              current.pressEnter === true &&
+              context?.id === id &&
+              !stopped &&
+              filled &&
+              target &&
+              !hasExpired(context.startedAt) &&
+              document.visibilityState === "visible" &&
+              stillCurrent()
+            ) {
+              const sent = enterTarget(target, code, submittedForms)
+              await send({
+                type: "AFTER_FILL_RESULT",
+                id,
+                result: sent ? "sent" : "skipped",
+              })
+            }
+          })().catch(() =>
+            send({ type: "AFTER_FILL_RESULT", id, result: "failed" }),
+          )
+        }, policy.enterDelayMs)
+      }
     } else finish("cancelled")
     return result
   }
@@ -109,7 +168,7 @@ function startController(): void {
     }
     let failed = false
     if (isRecord(result)) {
-      if (typeof result.code === "string") apply(result.code, id)
+      if (typeof result.code === "string") await apply(result.code, id)
       if (isFlowState(result.state) && isTerminal(result.state)) stopped = true
       permissionPaused = result.state === "permission_required"
       failed = result.retry === true
@@ -132,6 +191,14 @@ function startController(): void {
       )
         return finish("failed")
       if (!stillCurrent()) {
+        const changedRequest =
+          target &&
+          context &&
+          verificationHints(target).requestId !== context.requestId
+        if (changedRequest) {
+          strictAfter = true
+          requestedAt = Date.now()
+        }
         const success = [...document.querySelectorAll("[role='status']")].some(
           (element) =>
             /(?:email|account|verification)\s+(?:is\s+)?(?:verified|complete|successful)/i.test(
@@ -154,13 +221,17 @@ function startController(): void {
       return
     target = targets[0] ?? null
     if (!target) return
+    const form = target.inputs[0]?.form
+    if (form) submittedForms.delete(form)
     context = {
       id: crypto.randomUUID(),
-      startedAt: Date.now(),
+      startedAt: requestedAt ?? Date.now(),
       hostname: location.hostname,
       constraints: target.constraints,
+      ...verificationHints(target),
+      strictAfter,
     }
-    void poll()
+    void send({ type: "REGISTER", context }).then(() => poll())
   }
 
   chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
@@ -170,7 +241,10 @@ function startController(): void {
       typeof message.id === "string" &&
       typeof message.code === "string"
     ) {
-      respond({ filled: apply(message.code, message.id) })
+      void apply(message.code, message.id)
+        .then((filled) => respond({ filled }))
+        .catch(() => respond({ filled: false }))
+      return true
     } else if (message.type === "RETRY") {
       reset()
       scan()
@@ -203,6 +277,9 @@ function startController(): void {
       "autocomplete",
       "class",
       "style",
+      "data-otp-request-id",
+      "data-verification-id",
+      "data-otp-recipient",
     ],
   })
   document.addEventListener(
@@ -225,6 +302,7 @@ function startController(): void {
           ? event.target.closest("button, a, input[type='button']")
           : null
       if (
+        event.isTrusted &&
         element &&
         target &&
         (
@@ -234,7 +312,7 @@ function startController(): void {
           element.textContent ?? "",
         )
       ) {
-        reset()
+        reset(true)
         setTimeout(scan, 300)
       }
     },

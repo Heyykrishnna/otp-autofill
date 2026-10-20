@@ -1,6 +1,6 @@
 # Google OAuth setup
 
-Live Gmail access requires a Google Cloud project you control, Gmail API enabled, and a Chrome Extension OAuth client tied to the exact extension ID. A client ID is public configuration. Never add a client secret, Gmail password, service-account key, or access token to this project.
+Live Gmail access requires a Google Cloud project you control, Gmail API enabled, and a Chrome Extension OAuth client tied to the exact extension ID. A client ID is public configuration. Never commit a client secret, Gmail password, service-account key or access token. The Chrome Extension flow uses no client secret. The optional [multi-inbox companion](multi-inbox-setup.md) uses a separate Desktop OAuth client with its configuration only in an ignored local environment file.
 
 ## Development configuration
 
@@ -35,13 +35,13 @@ Publish a real privacy-policy URL and developer contact, document the narrow use
 
 ## Troubleshooting
 
-| Symptom                               | Check                                                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Connect button disabled               | Local environment is configured, build was rerun, and extension was reloaded                                                |
-| OAuth fails immediately               | OAuth client type and exact extension ID; Google account sign-in and administrator policy                                   |
-| Consent cannot proceed                | Test-user membership, requested restricted scope, and project's consent status                                              |
-| Gmail API reports permission required | Gmail API activation, granted scope, revoked access, and Workspace administrator policy                                     |
-| Code never fills                      | Current site grant, active visible tab, empty supported target, exact sender-domain relationship, timestamps, and ambiguity |
-| Disconnect revocation warning         | Remove access at Google Account connections; local cached authorization has already been cleared                            |
+| Symptom                               | Check                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Connect button disabled               | Local environment is configured, build was rerun, and extension was reloaded                                               |
+| OAuth fails immediately               | OAuth client type and exact extension ID; Google account sign-in and administrator policy                                  |
+| Consent cannot proceed                | Test-user membership, requested restricted scope, and project's consent status                                             |
+| Gmail API reports permission required | Gmail API activation, granted scope, revoked access, and Workspace administrator policy                                    |
+| Code never fills                      | Current site grant, active visible tab, empty supported target, sender/site association evidence, timestamps and ambiguity |
+| Disconnect revocation warning         | Remove access at Google Account connections; local cached authorization has already been cleared                           |
 
 Official references: [Chrome Identity](https://developer.chrome.com/docs/extensions/reference/api/identity), [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes), [restricted scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification), [Chrome optional permissions](https://developer.chrome.com/docs/extensions/reference/api/permissions).
