@@ -133,7 +133,7 @@ export class GmailClient {
     seen: Set<string>,
     signal: AbortSignal,
   ): Promise<EmailMessage[]> {
-    const query = `after:${Math.floor((startedAt - 15_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "sign-in code" "login code" "authentication code" passcode otp}`
+    const query = `after:${Math.floor((startedAt - 15_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "sign-in code" "login code" "authentication code" "verify your email" "confirm your email" "verification link" "activation link" passcode otp}`
     const params = new URLSearchParams({
       q: query,
       maxResults: "10",

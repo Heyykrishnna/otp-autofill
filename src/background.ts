@@ -1,6 +1,7 @@
 import { companionCall } from "./background/companion"
 import { Mailboxes } from "./background/mailboxes"
 import { Coordinator } from "./background/coordinator"
+import { LinkCoordinator } from "./background/link-coordinator"
 import {
   disconnectGmail,
   getToken,
@@ -21,10 +22,13 @@ import {
   isFlowState,
   isFlowStatus,
   isRecord,
+  isVerificationLinkContext,
   siteOrigin,
 } from "./core/validation"
 
-const coordinator = new Coordinator()
+const mailboxes = new Mailboxes()
+const coordinator = new Coordinator(mailboxes)
+const linkCoordinator = new LinkCoordinator(mailboxes)
 let disconnecting = false
 let authGeneration = 0
 let connecting = false
@@ -145,6 +149,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
           accountEmail: undefined,
         })
         await coordinator.stopAll("permission_required")
+        await linkCoordinator.stopAll("permission_required")
         await stopContent()
         let companionRevoked = true
         if (settings.companionEnabled) {
@@ -202,6 +207,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
             "The local companion returned an invalid authorization request.",
         }
       await coordinator.stopAll()
+      await linkCoordinator.stopAll()
       await stopContent()
       await chrome.tabs.create({ url: url.href })
       return { ok: true }
@@ -209,6 +215,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
     case "REMOVE_ACCOUNT": {
       if (typeof message.id !== "string") return { ok: false }
       await coordinator.stopAll()
+      await linkCoordinator.stopAll()
       await stopContent()
       let revoked = true
       if (message.id === "chrome") {
@@ -245,6 +252,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
       await updateSettings({ autofill: message.value })
       if (!message.value) {
         await coordinator.stopAll()
+        await linkCoordinator.stopAll()
         await stopContent()
       } else {
         const tab = await activeTab()
@@ -280,6 +288,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
         return { ok: false }
       await chrome.permissions.remove({ origins: [message.origin] })
       await coordinator.stopAll()
+      await linkCoordinator.stopAll()
       await stopContent()
       await sync()
       return { ok: true }
@@ -333,6 +342,44 @@ async function handle(
     !siteOrigin(sender.url)
   )
     return { ok: false }
+  if (
+    message.type === "REGISTER_LINK" &&
+    isVerificationLinkContext(message.context)
+  )
+    return linkCoordinator.register(
+      tabId,
+      sender.documentId,
+      sender.url,
+      message.context,
+    )
+  if (
+    message.type === "POLL_LINK" &&
+    isVerificationLinkContext(message.context)
+  ) {
+    if (disconnecting) return { state: "permission_required" }
+    return linkCoordinator.poll(
+      tabId,
+      sender.documentId,
+      sender.url,
+      message.context,
+    )
+  }
+  if (
+    message.type === "LINK_DECISION" &&
+    typeof message.id === "string" &&
+    typeof message.approved === "boolean"
+  )
+    return linkCoordinator.decide(
+      tabId,
+      sender.documentId,
+      message.id,
+      message.approved,
+    )
+  if (
+    message.type === "LINK_ACTION_PERFORMED" &&
+    typeof message.id === "string"
+  )
+    return { ok: linkCoordinator.recordAction(tabId, message.id) }
   if (
     message.type === "AFTER_FILL_RESULT" &&
     typeof message.id === "string" &&
@@ -398,7 +445,12 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
 })
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  run(ready.then(() => coordinator.remove(tabId)))
+  run(
+    ready.then(async () => {
+      await coordinator.remove(tabId)
+      await linkCoordinator.remove(tabId)
+    }),
+  )
 })
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   run(
@@ -407,9 +459,14 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
     ),
   )
 })
-chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (change.status === "loading" || change.url)
-    run(ready.then(() => coordinator.remove(tabId)))
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  run(
+    ready.then(async () => {
+      if (change.status === "loading" || change.url)
+        await coordinator.remove(tabId)
+      await linkCoordinator.onTabUpdated(tabId, change, tab)
+    }),
+  )
 })
 chrome.permissions.onAdded.addListener(() => {
   run(sync())
@@ -418,6 +475,7 @@ chrome.permissions.onRemoved.addListener(() => {
   run(
     ready.then(async () => {
       await coordinator.stopAll("permission_required")
+      await linkCoordinator.stopAll("permission_required")
       await stopContent()
       await sync()
     }),

@@ -4,6 +4,7 @@ import type {
   FlowStatus,
   Snapshot,
   VerificationContext,
+  VerificationLinkContext,
 } from "./types"
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,8 +26,28 @@ export function isFlowState(value: unknown): value is FlowState {
       "timed_out",
       "permission_required",
       "ambiguous",
+      "confirmation_required",
+      "opening_link",
+      "verifying",
       "cancelled",
     ].includes(value)
+  )
+}
+
+export function isVerificationLinkContext(
+  value: unknown,
+): value is VerificationLinkContext {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    /^[a-f0-9-]{36}$/.test(value.id) &&
+    typeof value.startedAt === "number" &&
+    Number.isFinite(value.startedAt) &&
+    typeof value.hostname === "string" &&
+    value.hostname.length <= 253 &&
+    (value.recipient === undefined ||
+      (typeof value.recipient === "string" &&
+        emailAddress(value.recipient) !== null))
   )
 }
 

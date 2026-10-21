@@ -4,7 +4,7 @@
 
 A supported empty OTP form registers its website, document, field constraints, time and any full recipient/request hints. Only authorized inboxes are searched. The matcher checks code shape, extraction context, receipt time, explicit expiry, consumed message IDs and concurrent attempts.
 
-A sender on the website's registrable domain can match directly. A third-party delivery sender needs all of these additional signals for automatic selection:
+A sender on the website's registrable domain can match directly. A sibling domain with the same registrable label but a different suffix can match only when its verification or raw action-link domains stay aligned with the sender, the sender name and subject independently corroborate the organization, Gmail reports aligned authentication, and the authorized inbox was addressed. A third-party delivery sender needs all of these additional signals for automatic selection:
 
 - The subject, verification text or actual verification/continue link identifies the intended website. Redirect parameters are not decoded into trusted destinations. Privacy/footer links do not become verification actions merely because they are links.
 - The recognized verification domains identify one website. Conflicting verification-site references require confirmation.
@@ -12,7 +12,7 @@ A sender on the website's registrable domain can match directly. A third-party d
 - To/Delivered-To/X-Original-To evidence addresses the verified authorized inbox, including supported Gmail aliases.
 - Recipient/request constraints, uniqueness, expiry, code format, extraction score and complete inbox search still pass.
 
-There is no editable sender map, hardcoded provider whitelist, background browsing of unrelated sites or learned persistent mail history. Brand wording is weak evidence and cannot alone trigger third-party automatic fill. A website with no distinguishing information may require confirmation or manual entry. These rules reduce mistakes; they are not measured accuracy percentages or proof that an authenticated sender is an authorized provider for a website.
+There is no editable sender map, hardcoded provider whitelist, background browsing of unrelated sites or learned persistent mail history. Brand wording or a shared domain label alone cannot trigger automatic fill. A website with no distinguishing information may require confirmation or manual entry. These rules reduce mistakes; they are not measured accuracy percentages or cryptographic proof that separately registered domains share an owner.
 
 ## Enter settings
 
@@ -27,7 +27,7 @@ Script-created keyboard events are not trusted physical keypresses. A custom sit
 
 ## Existing installations
 
-Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.3.1.
+Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.4.0.
 
 Additional inboxes require the updated companion source. If an older companion is running, restart it with `npm run companion` and reconnect its accounts; credentials intentionally do not survive process exit. Primary Chrome Identity mode does not require that process.
 

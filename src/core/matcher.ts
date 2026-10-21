@@ -35,6 +35,53 @@ export function matchesWebsite(sender: string, hostname: string): boolean {
   return domain !== null && sameWebsite(domain, hostname)
 }
 
+function registrableLabel(hostname: string): string | null {
+  return (
+    getDomain(hostname, { allowPrivateDomains: true })?.split(".")[0] ?? null
+  )
+}
+
+function organizationEvidence(
+  candidate: Candidate,
+  context: VerificationContext,
+): boolean {
+  const sender = senderDomain(candidate.sender)
+  const label = registrableLabel(context.hostname)
+  if (
+    !sender ||
+    !label ||
+    label.length < 3 ||
+    registrableLabel(sender) !== label ||
+    sameWebsite(sender, context.hostname)
+  )
+    return false
+  const verificationDomains = candidate.verificationDomains ?? []
+  const domains = verificationDomains.length
+    ? verificationDomains
+    : (candidate.audiences ?? [])
+  if (
+    domains.length === 0 ||
+    !domains.every((domain) => sameWebsite(domain, sender))
+  )
+    return false
+  const words = (value: string) =>
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean)
+  const senderWords = words(candidate.sender.split("<")[0] ?? "")
+  const subjectWords = words(candidate.subject)
+  const senderIdentity =
+    senderWords.includes(label) ||
+    (senderWords.length >= 2 &&
+      senderWords.map((word) => word[0]).join("") === label)
+  const subjectIdentity =
+    subjectWords.includes(label) ||
+    (senderWords.length >= 2 &&
+      senderWords.every((word) => subjectWords.includes(word)))
+  return senderIdentity && subjectIdentity
+}
+
 function senderRelation(
   candidate: Candidate,
   context: VerificationContext,
@@ -50,6 +97,10 @@ function senderRelation(
     candidate.recipients?.some(
       (address) => canonicalEmail(address) === recipient,
     )
+  if (organizationEvidence(candidate, context))
+    return candidate.senderAuthentication === "pass" && addressed
+      ? "inferred"
+      : "confirm"
   if (
     intended &&
     domains.every((domain) => sameWebsite(domain, context.hostname)) &&

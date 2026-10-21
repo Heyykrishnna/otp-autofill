@@ -18,11 +18,12 @@ OTP Autofill processes email locally in the extension's background worker and us
 ## Features
 
 - Single native and React-controlled verification fields, including dynamically rendered forms.
-- Four to twelve split inputs, four to eight numeric digits, grouped numeric codes, and supported four to twelve character alphanumeric codes with case preserved.
+- Four to twelve split inputs, including explicitly indexed digit fields without `maxlength`, four to eight numeric digits, grouped numeric codes, and supported four to twelve character alphanumeric codes with case preserved.
 - Plain-text, HTML and nested multipart Gmail parsing, MIME-header decoding and attachment exclusion during extraction.
-- Sender/website registrable-domain matching, automatic third-party website association, recipient hints and request-reference correlation.
+- Sender/website registrable-domain matching, authenticated sibling-domain and third-party website association, recipient hints and request-reference correlation.
 - Field-format, recipient, request-reference, sender-authentication and timestamp checks; ambiguous matches require user choice.
 - Configurable Enter after filling: on/off and 0–2000 ms delay, with current-form validation and duplicate-submission guards.
+- Confirmation-first email verification links: a fresh site-matched link can open in a dedicated tab, follow a bounded sequence of explicit verification actions, and refresh the origin only after an explicit success signal.
 - Empty-field checks, preservation of typed values, navigation cancellation and a two-minute attempt deadline.
 - Gmail connect/disconnect, automatic-fill toggle, per-site access controls and privacy disclosures.
 
@@ -105,6 +106,8 @@ Build environment variables override local environment files. Rebuild after chan
 5. A unique compatible code fills automatically. Enter is then sent according to Settings → After filling. If several codes qualify, choose the intended email using its sender domain, time and code length, or enter the code manually.
 6. Review the result and continue with the site's verification process. Site behavior may include automatic submission.
 
+For link-based signup verification, keep the approved signup page open after it asks you to check your inbox. A page-level prompt identifies the matched sender and destination host. Approval opens the link in a new tab; a different verification host triggers Chrome's per-site permission prompt. Automation stops on ambiguous links, multiple possible buttons, unsafe labels, domain changes, repeated actions, six clicks, twelve navigations, or a 45-second execution deadline. Declining does not open the link.
+
 Start typing to cancel automatic filling for the current attempt. Settings let you disable autofill, remove site access or disconnect Gmail. If Google revocation cannot be confirmed, remove the grant through [Google Account connections](https://myaccount.google.com/connections).
 
 ## How it works
@@ -123,6 +126,8 @@ flowchart LR
 ```
 
 The worker owns primary-account tokens and Gmail calls; the optional companion owns separately authorized inbox credentials and requests. An isolated top-frame content script detects and fills approved fields. Trusted popup/settings pages manage permissions and account actions. Matching scores are fixed rules, not measured probabilities or accuracy claims.
+
+Link verification uses the same bounded inbox discovery and site matching. Its separate path requires user confirmation, opens a new tab, scans each page once per step for allow-listed verification controls, and accepts explicit visible verified/activated/success text as its base case before refreshing the origin page.
 
 Read the [implementation guide](docs/implementation-guide.md) for the module map, algorithm stages, development workflow and installation updates.
 
@@ -150,7 +155,7 @@ npm audit --audit-level=moderate
 | `npm run build`        | Generate `build/chrome-mv3-prod/`.                                                    |
 | `npm run build:local`  | Build and update an existing configured `artifacts/` installation, preserving its ID. |
 | `npm run sync:local`   | Sync an already-built output into that installation and preserve a backup.            |
-| `npm run package`      | Build and create `artifacts/otp-autofill-0.3.1.zip`.                                  |
+| `npm run package`      | Build and create `artifacts/otp-autofill-0.4.0.zip`.                                  |
 | `npm run typecheck`    | Run strict TypeScript checks.                                                         |
 | `npm run lint`         | Check source, tests and tooling with ESLint.                                          |
 | `npm run format:check` | Check formatting.                                                                     |
@@ -197,6 +202,7 @@ For a shared tester build, first establish a stable extension identity and match
 - Direct senders match the website's registrable domain. Third-party senders are inferred from website intent, sender-authentication evidence and the authorized recipient; incomplete associations require confirmation; unrelated mail remains excluded. A matching From header is not authenticated sender proof.
 - Multiple eligible codes require user choice; recency alone does not resolve ambiguity.
 - Complex field patterns, closed shadow roots, iframe-only forms, custom editors, contenteditable inputs, multiple simultaneous verification targets on one page, SMS and non-Gmail providers need manual handling. Open shadow roots and multiple separately authorized Gmail accounts are supported within their documented limits.
+- Verification-link automation supports HTTPS pages on the same registrable website and needs a Chrome host grant for every visited host. Pages with CAPTCHA, required user input, ambiguous controls, unsupported language, or no explicit success signal remain open for manual completion.
 - Non-English verification phrases and unusual encodings need additional fixtures before support can be claimed.
 - Chrome worker suspension discards temporary candidates; eligible attempts can resume within their original two-minute deadline. Browser timer throttling may delay detection or polling.
 - A filled field or a disappearing form does not prove verification succeeded. Completion status depends on an explicit supported success signal from the page.

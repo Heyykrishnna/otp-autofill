@@ -1,6 +1,6 @@
 # Validation report
 
-Version 0.3.1 validated locally on 21 October 2026 with Node.js 24 and the project-locked Playwright Chromium runtime.
+Version 0.4.0 validated locally on 21 October 2026 with Node.js 24 and the project-locked Playwright Chromium runtime.
 
 | Check                                           | Actual result                                                                                                      |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -8,9 +8,9 @@ Version 0.3.1 validated locally on 21 October 2026 with Node.js 24 and the proje
 | `npm run typecheck` within the check command    | Passed strict TypeScript checks                                                                                    |
 | `npm run lint` within the check command         | Passed                                                                                                             |
 | `npm run format:check` within the check command | Passed                                                                                                             |
-| `npm test` within the check command             | 121 tests passed across ten files                                                                                  |
+| `npm test` within the check command             | 151 tests passed across eleven files                                                                               |
 | `npm run build` within the check command        | Passed; installable Manifest V3 output generated                                                                   |
-| `npm run test:e2e` within the check command     | 31 Chromium browser tests passed                                                                                   |
+| `npm run test:e2e` within the check command     | 36 Chromium browser tests passed                                                                                   |
 | `npm audit --audit-level=moderate`              | Zero vulnerabilities reported                                                                                      |
 | `npm ls --depth=0`                              | Dependency tree resolved without missing or invalid dependencies                                                   |
 | `node scripts/package.mjs`                      | ZIP created successfully with 13 build files                                                                       |
@@ -18,7 +18,7 @@ Version 0.3.1 validated locally on 21 October 2026 with Node.js 24 and the proje
 | Production artifact inspection                  | Runtime entry points present; no fixture tokens, test OAuth client, environment files, or source maps in the build |
 | Popup and settings screenshots                  | Visually inspected; readable layout with no observed clipping                                                      |
 
-The archive is `artifacts/otp-autofill-0.3.1.zip`; its checksum is in `artifacts/SHA256SUMS`. For the existing installation, keep using `artifacts/otp-autofill-0.1.0` so its path-derived ID continues to match the registered OAuth client. Loading a different folder produces a different development identity.
+The archive is `artifacts/otp-autofill-0.4.0.zip`; its checksum is in `artifacts/SHA256SUMS`. For the existing installation, keep using `artifacts/otp-autofill-0.1.0` so its path-derived ID continues to match the registered OAuth client. Loading a different folder produces a different development identity.
 
 The production build was installed directly in an isolated Chromium profile to confirm that missing OAuth configuration produces setup guidance and a disabled connection action. Other browser tests used a separate build copy with controlled Identity and Gmail responses; they did not access a real inbox or change the production manifest.
 
@@ -74,3 +74,15 @@ This patch adds a visible popup version and extends the regression suite to both
 `npm run check` passed with 121 unit/integration tests and 31 Chromium tests, including strict types, lint, formatting and production build. `npm audit --audit-level=moderate` reported zero vulnerabilities. `npm run sync:local` preserved extension ID `pfhmngabnonjbbmomndimnkebibdmjkh`; all 13 installed and ZIP files were compared with the production build, and the reported older chunk was absent. The local Desktop secret was checked to be absent from the archive.
 
 Syncing files does not reload a running Chrome extension, and Chrome can retain historical error records. The owner must reload the extension card, close older settings tabs and reopen the popup, confirm Version 0.3.1 in its footer, then clear old error records. Browser automation cannot operate Chrome extension pages under its URL security policy. No access to the owner's live Gmail or browser profile was used for the reproduction.
+
+## Email verification links
+
+The verification-link feature was validated with fresh HTTPS link extraction, site and sender matching, explicit approval and decline, new-tab isolation, bounded safe-action traversal, origin refresh after explicit completion, ambiguous-link abstention, unsafe and destructive control rejection, required-form rejection, repeated-control handling, stale and unrelated evidence, and false-positive protection for unrelated page text.
+
+`npm run check` passed with strict types, lint, formatting, 142 unit/integration tests, the production build and 33 Chromium tests. `npm audit --audit-level=moderate` reported zero vulnerabilities. The browser suite confirms approval completes the controlled verification route in a new tab and refreshes the original page, while decline opens no tab. Cross-host Chrome permission prompts and real provider pages remain controlled live-account checks.
+
+## MLH indexed-code compatibility
+
+The live MLH signup flow was inspected in Chrome. Its form uses six numeric inputs labelled “Digit 1 of 6” through “Digit 6 of 6,” omits `maxlength`, and applies `autocomplete="one-time-code"` only to the first input. Its message uses a “one-time code to sign into your account” phrase and an authenticated `mlh.io` sender while the form is hosted on `mlh.com`.
+
+The detector now groups only complete, uniquely indexed four-to-twelve-input sequences. The parser distinguishes the bare word “account” in a bounded sign-in phrase from an account-number label. Cross-suffix sibling-domain matching requires sender-aligned verification domains, sender-name and subject corroboration, passing aligned Gmail authentication and an addressed authorized inbox; incomplete evidence does not auto-fill. The controlled MLH-style end-to-end regression fills all six React fields and the negative unit cases preserve abstention.

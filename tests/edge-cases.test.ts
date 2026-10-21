@@ -13,6 +13,24 @@ const context: VerificationContext = {
 }
 const now = context.startedAt + 10_000
 
+function mlhCandidate() {
+  const candidate = extractCandidates(
+    email("Here’s your one-time code to sign into your account: 289217", {
+      sender: "Major League Hacking <notifications@mlh.io>",
+      subject: "Verify Your Identity | Major League Hacking",
+      senderAuthentication: "pass",
+      account: "alice@gmail.com",
+      recipients: ["alice@gmail.com"],
+    }),
+  )[0]
+  if (!candidate) throw new Error("Expected MLH candidate")
+  return {
+    ...candidate,
+    audiences: ["transactional.mlh.io"],
+    verificationDomains: [],
+  }
+}
+
 describe("verification email edge cases", () => {
   it("ignores quoted historical codes when a new message contains a current code", () => {
     const codes = extractCandidates(
@@ -117,6 +135,45 @@ describe("sender, account and session association", () => {
     )
     expect(matchCandidates(candidates, context, now).kind).toBe("none")
   })
+  it("associates an authenticated sibling domain with corroborating organization evidence", () => {
+    const candidate = mlhCandidate()
+    expect(
+      matchCandidates(
+        [candidate],
+        {
+          ...context,
+          hostname: "www.mlh.com",
+          recipient: "alice@gmail.com",
+        },
+        now,
+      ).kind,
+    ).toBe("unique")
+  })
+  it.each([
+    { senderAuthentication: "unknown" as const },
+    { recipients: ["other@gmail.com"] },
+    { verificationDomains: ["other.test"] },
+    { subject: "Your login code" },
+  ])(
+    "does not automatically associate incomplete sibling-domain evidence: %j",
+    (override) => {
+      const candidate = {
+        ...mlhCandidate(),
+        ...override,
+      }
+      expect(
+        matchCandidates(
+          [candidate],
+          {
+            ...context,
+            hostname: "www.mlh.com",
+            recipient: "alice@gmail.com",
+          },
+          now,
+        ).kind,
+      ).not.toBe("unique")
+    },
+  )
   it("does not collapse equal codes from two separately authorized inboxes", () => {
     const candidates = [
       ...extractCandidates(

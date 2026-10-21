@@ -5,6 +5,9 @@ import { enterTarget } from "./submit"
 import { verificationHints } from "./context"
 import { fillTarget } from "./autofill"
 import { detectTargets, type OtpTarget } from "./detector"
+import { runVerificationActions } from "./link-automation"
+import { startVerificationLinkController } from "./link-controller"
+import { MAX_VERIFICATION_CLICKS } from "../core/types"
 
 const marker = "otp-autofill-controller"
 const isolated = globalThis as typeof globalThis & { [marker]?: boolean }
@@ -47,6 +50,8 @@ function startController(): void {
       return null
     }
   }
+
+  startVerificationLinkController({ send })
 
   function finish(state: FlowState): void {
     stopped = true
@@ -259,6 +264,30 @@ function startController(): void {
         scan()
       }
       respond({ ok: true })
+    } else if (
+      message.type === "ADVANCE_LINK_VERIFICATION" &&
+      typeof message.id === "string" &&
+      typeof message.maximumClicks === "number" &&
+      Number.isInteger(message.maximumClicks) &&
+      message.maximumClicks > 0 &&
+      message.maximumClicks <= MAX_VERIFICATION_CLICKS
+    ) {
+      void runVerificationActions(message.maximumClicks, async () => {
+        const result = await send({
+          type: "LINK_ACTION_PERFORMED",
+          id: message.id,
+        })
+        return isRecord(result) && result.ok === true
+      })
+        .then(respond)
+        .catch(() =>
+          respond({
+            status: "blocked",
+            clicks: 0,
+            detail: "The verification page could not be inspected safely.",
+          }),
+        )
+      return true
     }
   })
 

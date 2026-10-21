@@ -7,13 +7,19 @@ import {
   requestReference,
   withoutHtmlQuotes,
 } from "./evidence"
-import type { Candidate, EmailMessage, GmailPart } from "./types"
+import type {
+  Candidate,
+  EmailMessage,
+  EmailVerificationLink,
+  GmailPart,
+  VerificationLinkCandidate,
+} from "./types"
 import { isRecord } from "./validation"
 
 const PHRASE =
   /(?:one[ -]?time\s+(?:password|code)|verification\s+code|security\s+code|sign[ -]?in\s+code|login\s+code|authentication\s+code|passcode|\botp\b)/gi
 const NEGATIVE =
-  /(?:invoice|reference|order|phone|telephone|tracking|account|request|session|challenge)\s*(?:number|id|no\.?|#)?\s*[:#-]?\s*$/i
+  /(?:(?:invoice|order|account|request|session|challenge)\s+(?:number|id|no\.?|#)|tracking(?:\s+(?:number|id|reference|no\.?|#))?|reference|phone(?:\s+number)?|telephone(?:\s+number)?)\s*[:#-]?\s*$/i
 const STOP_WORDS = new Set([
   "verification",
   "security",
@@ -164,8 +170,25 @@ function collectText(part: GmailPart, forwarded = false): string {
     .slice(0, 1_000_000)
 }
 
-function actionLinks(part: GmailPart): string {
-  if (isAttachment(part)) return ""
+const LINK_ACTION =
+  /\b(?:activate|complete|confirm|continue|verify)\b.{0,40}\b(?:account|email|registration|verification)?\b|\b(?:account|email|registration)\b.{0,40}\b(?:activate|confirm|verify)\b/i
+const LINK_NEGATIVE =
+  /\b(?:cancel|delete|invoice|manage preferences|order|password reset|pay|purchase|receipt|refund|remove|unsubscribe)\b/i
+
+function safeVerificationUrl(value: string): string | null {
+  if (value.length > 2_048) return null
+  try {
+    const url = new URL(value.replace(/&amp;/gi, "&"))
+    return url.protocol === "https:" && !url.username && !url.password
+      ? url.href
+      : null
+  } catch {
+    return null
+  }
+}
+
+function actionLinks(part: GmailPart): EmailVerificationLink[] {
+  if (isAttachment(part)) return []
   const raw = withoutHtmlQuotes(
     part.body?.data ? decodeBase64Url(part.body.data) : "",
   )
@@ -175,17 +198,15 @@ function actionLinks(part: GmailPart): string {
           ...raw.matchAll(
             /<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi,
           ),
-        ]
-          .filter((match) =>
-            /\b(?:continue|verify|sign[ -]?in|log[ -]?in|authenticate)\b/i.test(
-              htmlToText(match[2] ?? ""),
-            ),
-          )
-          .map((match) => `Continue at ${match[1]}`)
+        ].flatMap((match) => {
+          const label = htmlToText(match[2] ?? "").slice(0, 160)
+          const url = safeVerificationUrl(match[1] ?? "")
+          return url && LINK_ACTION.test(label) && !LINK_NEGATIVE.test(label)
+            ? [{ url, label }]
+            : []
+        })
       : []
-  return [...links, ...(part.parts ?? []).map(actionLinks)]
-    .join("\n")
-    .slice(0, 100_000)
+  return [...links, ...(part.parts ?? []).flatMap(actionLinks)].slice(0, 32)
 }
 
 export function parseGmailMessage(value: unknown): EmailMessage | null {
@@ -226,6 +247,7 @@ export function parseGmailMessage(value: unknown): EmailMessage | null {
       .join("\n")
       .slice(0, 100_000)
   }
+  const verificationLinks = actionLinks(payload)
   return {
     id: value.id,
     receivedAt,
@@ -245,9 +267,49 @@ export function parseGmailMessage(value: unknown): EmailMessage | null {
     ),
     verificationDomains: verificationDomains(
       subject,
-      `${forwarded ? unquoted : currentMessageText(text)}\n${actionLinks(payload)}`,
+      `${forwarded ? unquoted : currentMessageText(text)}\n${verificationLinks.map((link) => `Continue at ${link.url}`).join("\n")}`,
     ),
+    verificationLinks,
   }
+}
+
+export function extractVerificationLinks(
+  message: EmailMessage,
+): VerificationLinkCandidate[] {
+  const text = `${message.subject}\n${message.text}`.slice(0, 100_000)
+  const links = [...(message.verificationLinks ?? [])]
+  for (const match of text.matchAll(/https:\/\/[^\s<>"']+/gi)) {
+    const url = safeVerificationUrl((match[0] ?? "").replace(/[).,;]+$/, ""))
+    const index = match.index
+    const context = text.slice(
+      Math.max(0, index - 100),
+      index + match[0].length + 40,
+    )
+    const leadIn = text.slice(Math.max(0, index - 60), index)
+    const destination = url ? new URL(url) : null
+    if (
+      url &&
+      LINK_ACTION.test(context) &&
+      !LINK_NEGATIVE.test(leadIn) &&
+      destination &&
+      !LINK_NEGATIVE.test(`${destination.pathname} ${destination.search}`)
+    )
+      links.push({ url, label: context })
+  }
+  const unique = new Map<string, EmailVerificationLink>()
+  for (const link of links) unique.set(link.url, link)
+  return [...unique.values()].slice(0, 8).map((link, index) => ({
+    id: `${message.id}:link:${index}`,
+    messageId: message.id,
+    url: link.url,
+    sender: message.sender,
+    receivedAt: message.receivedAt,
+    subject: message.subject,
+    account: message.account,
+    recipients: message.recipients,
+    forwarded: message.forwarded,
+    senderAuthentication: message.senderAuthentication,
+  }))
 }
 
 export function extractCandidates(message: EmailMessage): Candidate[] {
@@ -316,7 +378,12 @@ export function extractCandidates(message: EmailMessage): Candidate[] {
       continue
     if (/^\d{4}$/.test(code) && /(?:year|copyright|©)\s*$/i.test(before))
       continue
-    const confidence = nearest.distance <= 24 ? 0.98 : 0.85
+    const direct =
+      nearest.distance <= 24 ||
+      /^\s*(?:is|to (?:sign|log) in(?:to)? (?:your|the) account(?: on this device)?)?\s*[:#-]?\s*$/i.test(
+        nearest.bridge,
+      )
+    const confidence = direct ? 0.98 : 0.85
     const previous = found.get(code)
     if (!previous || confidence > previous.confidence)
       found.set(code, {

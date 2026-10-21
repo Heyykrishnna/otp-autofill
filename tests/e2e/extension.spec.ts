@@ -14,6 +14,7 @@ import { GMAIL_SCOPE } from "../../src/core/types"
 interface InboxConfig {
   codes: string[]
   sender?: string
+  subject?: string
   delay?: number
   emptyFirst?: boolean
   expired?: boolean
@@ -22,6 +23,7 @@ interface InboxConfig {
   generation?: number
   body?: string
   authenticated?: boolean
+  authenticationDomain?: string
 }
 
 const test = base.extend<{
@@ -41,6 +43,7 @@ const test = base.extend<{
     }
     manifest.host_permissions.push(
       "https://login.example.com/*",
+      "https://www.mlh.com/*",
       "http://127.0.0.1/*",
     )
     await writeFile(manifestPath, JSON.stringify(manifest))
@@ -71,13 +74,20 @@ const test = base.extend<{
         await chrome.scripting.registerContentScripts([
           {
             id: "fixture-grant",
-            matches: ["https://login.example.com/*"],
+            matches: ["https://login.example.com/*", "https://www.mlh.com/*"],
             js: ["otp-content.js"],
             runAt: "document_idle",
           },
         ])
       })
       await context.route("https://login.example.com/**", async (route) => {
+        const url = new URL(route.request().url())
+        const response = await context.request.get(
+          `http://localhost:4173${url.pathname}${url.search}`,
+        )
+        await route.fulfill({ response })
+      })
+      await context.route("https://www.mlh.com/**", async (route) => {
         const url = new URL(route.request().url())
         const response = await context.request.get(
           `http://localhost:4173${url.pathname}${url.search}`,
@@ -147,14 +157,16 @@ async function inbox(worker: Worker, config: InboxConfig) {
                 value:
                   settings.sender ?? "Example <verify@accounts.example.com>",
               },
-              { name: "Subject", value: "Your verification code" },
+              {
+                name: "Subject",
+                value: settings.subject ?? "Your verification code",
+              },
               { name: "Delivered-To", value: "test@example.com" },
               ...(settings.authenticated
                 ? [
                     {
                       name: "Authentication-Results",
-                      value:
-                        "mx.google.com; dmarc=pass header.from=provider.test",
+                      value: `mx.google.com; dmarc=pass header.from=${settings.authenticationDomain ?? "provider.test"}`,
                     },
                   ]
                 : []),
@@ -209,6 +221,7 @@ test("fills React state and leaves submission and unrelated inputs untouched", a
 
 for (const scenario of [
   { kind: "split", code: "042193", result: "042193" },
+  { kind: "indexed", code: "289217", result: "289217" },
   { kind: "alpha", code: "UCSIAGUBQQ", result: "UCSIAGUBQQ" },
   { kind: "alpha", code: "aB7xQ9Kp2Z", result: "aB7xQ9Kp2Z" },
   { kind: "single", code: "482 193", result: "482193" },
@@ -229,6 +242,34 @@ for (const scenario of [
   })
 }
 
+test("fills MLH-style indexed fields from an authenticated sibling domain", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, {
+    codes: ["289217"],
+    sender: "Major League Hacking <notifications@mlh.io>",
+    subject: "Verify Your Identity | Major League Hacking",
+    body: "Here's your one-time code to sign into your account: 289217. Sign in using https://transactional.mlh.io/sign-in",
+    authenticated: true,
+    authenticationDomain: "mlh.io",
+  })
+  const page = await extension.context.newPage()
+  await page.goto(
+    "https://www.mlh.com/?scenario=indexed&recipient=test@example.com",
+  )
+  await expect
+    .poll(async () =>
+      extension.worker.evaluate(async () =>
+        JSON.stringify(await chrome.storage.session.get(null)),
+      ),
+    )
+    .toContain("filled")
+  await expect(page.getByLabel("React state")).toHaveText(
+    "React state: 289217",
+    { timeout: 15_000 },
+  )
+})
+
 test("detects a form mounted after page load", async ({ extension }) => {
   await inbox(extension.worker, { codes: ["482193"] })
   const page = await extension.context.newPage()
@@ -238,6 +279,63 @@ test("detects a form mounted after page load", async ({ extension }) => {
     "React state: 482193",
     { timeout: 15_000 },
   )
+})
+
+test("confirms and completes an email verification link in a new tab", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, {
+    codes: ["link"],
+    body: "Verify your email at https://login.example.com/verify-email?token=fixture",
+  })
+  const page = await extension.context.newPage()
+  await page.goto("https://login.example.com/?scenario=link")
+  await expect(page.locator("#otp-autofill-link-prompt")).toBeAttached({
+    timeout: 15_000,
+  })
+  const verificationPagePromise = extension.context.waitForEvent("page")
+  await page.keyboard.press("Enter")
+  const verificationPage = await verificationPagePromise
+  await expect(verificationPage).toHaveURL(
+    "https://login.example.com/verify-email?token=fixture",
+  )
+  await expect
+    .poll(
+      async () =>
+        extension.worker.evaluate(async () =>
+          JSON.stringify(await chrome.storage.session.get(null)),
+        ),
+      { timeout: 15_000 },
+    )
+    .toContain('"state":"completed"')
+  await expect(verificationPage.getByText("verified successfully")).toBeVisible(
+    { timeout: 15_000 },
+  )
+  await expect(
+    page.getByRole("heading", { name: "Email verified" }),
+  ).toBeVisible({
+    timeout: 15_000,
+  })
+})
+
+test("does not open a verification link when the user declines", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, {
+    codes: ["link"],
+    body: "Verify your email at https://login.example.com/verify-email?token=fixture",
+  })
+  const page = await extension.context.newPage()
+  await page.goto("https://login.example.com/?scenario=link")
+  await expect(page.locator("#otp-autofill-link-prompt")).toBeAttached({
+    timeout: 15_000,
+  })
+  const pages = extension.context.pages().length
+  await page.keyboard.press("Shift+Tab")
+  await page.keyboard.press("Enter")
+  await expect(page.locator("#otp-autofill-link-prompt")).toHaveCount(0)
+  await new Promise((resolve) => setTimeout(resolve, 1_000))
+  expect(extension.context.pages()).toHaveLength(pages)
 })
 
 test("waits for a delayed email and recovers from a temporary Gmail error", async ({
@@ -722,7 +820,7 @@ for (const pageName of ["popup", "options"]) {
   })
 }
 
-for (const scenario of ["single", "split"]) {
+for (const scenario of ["single", "split", "indexed"]) {
   test(`presses Enter once after filling ${scenario} when enabled`, async ({
     extension,
   }) => {
