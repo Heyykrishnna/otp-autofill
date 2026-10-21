@@ -4,6 +4,7 @@ import {
   decodeBase64Url,
   decodeMimeHeader,
   extractCandidates,
+  extractVerificationLinks,
   htmlToText,
   parseGmailMessage,
 } from "../src/core/email-parser"
@@ -20,6 +21,7 @@ describe("verification email extraction", () => {
     ["OTP: 0427", "0427"],
     ["Passcode: 482\u00a0193", "482193"],
     ["Your verification code: AB12-cD34", "AB12-cD34"],
+    ["Here’s your one-time code to sign into your account\n289217", "289217"],
   ])("extracts supported format from %s", (text, code) => {
     expect(
       extractCandidates(email(text)).map((candidate) => candidate.code),
@@ -58,6 +60,50 @@ describe("verification email extraction", () => {
         email("Verification code: 482193\nVerification code: 482193"),
       ),
     ).toHaveLength(1)
+  })
+})
+
+describe("verification link extraction", () => {
+  it("extracts an explicit HTTPS verification link without exposing unrelated links", () => {
+    const message = email(
+      "Verify your email at https://login.example.com/verify?token=secret. Manage preferences at https://example.com/preferences.",
+      { subject: "Verify your email" },
+    )
+    expect(extractVerificationLinks(message)).toMatchObject([
+      { url: "https://login.example.com/verify?token=secret" },
+    ])
+  })
+
+  it("extracts an action-labelled HTML link and decodes query entities", () => {
+    const parsed = parseGmailMessage(
+      gmailMessage("", {
+        payload: {
+          mimeType: "text/html",
+          headers: [
+            { name: "From", value: "verify@accounts.example.com" },
+            { name: "Subject", value: "Confirm your email" },
+          ],
+          body: {
+            data: Buffer.from(
+              '<a href="https://login.example.com/verify?a=1&amp;b=2">Confirm email</a><a href="https://example.com/unsubscribe">Unsubscribe</a>',
+            ).toString("base64url"),
+          },
+        },
+      }),
+    )
+    expect(parsed && extractVerificationLinks(parsed)).toMatchObject([
+      { url: "https://login.example.com/verify?a=1&b=2" },
+    ])
+  })
+
+  it.each([
+    "Verify at http://login.example.com/verify?token=secret",
+    "Reset password at https://login.example.com/reset?token=secret",
+    "Invoice at https://login.example.com/invoice/42",
+  ])("rejects unsafe or unrelated links: %s", (text) => {
+    expect(
+      extractVerificationLinks(email(text, { subject: "Account update" })),
+    ).toEqual([])
   })
 })
 

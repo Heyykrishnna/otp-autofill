@@ -23,7 +23,11 @@ const server = createServer((request, response) => {
   if (request.url === "/app.js") {
     response.setHeader("Content-Type", "text/javascript")
     response.end(app)
-  } else if (request.url === "/" || request.url?.startsWith("/?")) {
+  } else if (
+    request.url === "/" ||
+    request.url?.startsWith("/?") ||
+    request.url?.startsWith("/verify-email?")
+  ) {
     response.setHeader("Content-Type", "text/html")
     response.end(html)
   } else {

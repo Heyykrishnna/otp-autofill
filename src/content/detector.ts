@@ -31,6 +31,20 @@ function accessibleText(input: HTMLInputElement): string {
     .slice(0, 1_000)
 }
 
+function indexedDigit(
+  input: HTMLInputElement,
+): { position: number; total: number } | null {
+  const match = accessibleText(input).match(
+    /\bdigit\s+(\d{1,2})\s+(?:of|\/)\s+(\d{1,2})\b/i,
+  )
+  if (!match) return null
+  const position = Number(match[1])
+  const total = Number(match[2])
+  return total >= 4 && total <= 12 && position >= 1 && position <= total
+    ? { position, total }
+    : null
+}
+
 export function isUsable(input: HTMLInputElement): boolean {
   const style = input.ownerDocument.defaultView?.getComputedStyle(input)
   return (
@@ -91,16 +105,39 @@ export function detectTargets(root: Document = document): OtpTarget[] {
     if (used.has(input)) continue
     const ownText = accessibleText(input)
     if (EXCLUDED_SIGNAL.test(ownText)) continue
-    if (input.maxLength === 1) {
+    const indexed = indexedDigit(input)
+    if (input.maxLength === 1 || indexed) {
       const group =
         input.closest("fieldset, [role='group'], form") ?? input.parentElement
       if (!group) continue
-      const grouped = inputs.filter(
-        (item) =>
-          group.contains(item) &&
-          item.maxLength === 1 &&
-          !EXCLUDED_SIGNAL.test(accessibleText(item)),
+      const indexedInputs = indexed
+        ? inputs
+            .flatMap((item) => {
+              const digit = indexedDigit(item)
+              return group.contains(item) &&
+                digit?.total === indexed.total &&
+                !EXCLUDED_SIGNAL.test(accessibleText(item))
+                ? [{ input: item, position: digit.position }]
+                : []
+            })
+            .sort((left, right) => left.position - right.position)
+        : []
+      const grouped = indexed
+        ? indexedInputs.map((item) => item.input)
+        : inputs.filter(
+            (item) =>
+              group.contains(item) &&
+              item.maxLength === 1 &&
+              !EXCLUDED_SIGNAL.test(accessibleText(item)),
+          )
+      if (
+        indexed &&
+        (indexedInputs.length !== indexed.total ||
+          indexedInputs.some(
+            (item, position) => item.position !== position + 1,
+          ))
       )
+        continue
       const groupText = `${group.querySelector("legend")?.textContent ?? ""} ${group.getAttribute("aria-label") ?? ""} ${group.querySelector("label")?.textContent ?? ""}`
       if (
         grouped.length >= 4 &&

@@ -1,6 +1,6 @@
 # Privacy and security
 
-OTP Autofill helps move a Gmail verification code into an approved website's form. It requests Gmail read-only access through Google's authorization screen. This Google scope grants broad read access; the extension's implementation restricts its actual use to recent verification-message discovery during active attempts. It never asks for a Gmail password.
+OTP Autofill helps move a Gmail verification code into an approved website's form and can, after explicit confirmation, open a matching email verification link. It requests Gmail read-only access through Google's authorization screen. This Google scope grants broad read access; the extension's implementation restricts its actual use to recent verification-message discovery during active attempts. It never asks for a Gmail password.
 
 ## Data use
 
@@ -9,6 +9,8 @@ In single-inbox mode the background worker sends authenticated requests directly
 Once a code is selected, it is delivered to the intended content script and written into the approved site's input. The receiving website can read the code and may process it according to its own privacy policy. Only grant permission to websites you trust.
 
 Application code never persists Google tokens. Chrome Identity manages the primary authorization cache; the optional companion holds separate access/refresh tokens only in process memory and forgets them on exit. Its Desktop OAuth configuration remains in an ignored local environment file and is not packaged into the extension. Candidate codes are held only in memory for the active attempt, which expires within two minutes, and are discarded when filled, cancelled, disconnected, timed out, or the worker stops. Email bodies are not retained after parsing. There is no OTP history or analytics.
+
+Verification URLs, including their tokens, remain only in worker memory until the attempt or approved traversal ends. The page prompt shows only sender and hostname. Approved links open in a separate tab. The extension requests site access for the verification host before inspecting it, stays within the same registrable website, and refreshes the origin only after explicit visible completion text. The destination website receives its own link token as it would from a manual click.
 
 Local persistent storage holds autofill/connection flags, the verified primary inbox address, companion enablement, Enter preferences and revocation status. Temporary trusted session storage holds active attempt status, candidate metadata including the inbox address, bounded consumed message IDs and an opaque local pairing credential. Message IDs expire logically after three minutes; memory-only salted code fingerprints suppress duplicate delivery during a worker lifetime. There is no stored plaintext code or body. Chrome manages optional website grants. No application data is synchronized through `chrome.storage.sync`.
 
@@ -36,6 +38,7 @@ Local persistent storage holds autofill/connection flags, the verified primary i
 | Duplicate/infinite work                | In-flight locks, message-ID reuse, request/time budgets, retry backoff, and cancellation                                                                                                         |
 | Spoofed email sender                   | Domain matching is an error-reduction measure, not sender authentication. Gmail delivery/authentication controls remain relevant. Do not assume sender matching proves a message is trustworthy. |
 | Malicious approved website             | An approved website can shape its own fields and read a filled code. This extension cannot make an untrusted website safe.                                                                       |
+| Unsafe verification page               | Explicit user confirmation, per-host permission, same-site navigation, allow-listed controls, ambiguity checks, click/navigation limits and explicit completion text                             |
 
 The companion binds only to 127.0.0.1 and checks the exact extension Origin, Host and pairing credential. This limits browser callers; local HTTP is not a protection against device malware. Removing an account requests revocation, but network failure or forced shutdown cannot guarantee Google-side revocation. See [multi-inbox setup](multi-inbox-setup.md) for controls and limits.
 

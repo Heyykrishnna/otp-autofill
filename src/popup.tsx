@@ -15,6 +15,9 @@ const STATE_LABELS = {
   timed_out: "This attempt timed out",
   permission_required: "Connection needed",
   ambiguous: "Your choice is needed",
+  confirmation_required: "Your confirmation is needed",
+  opening_link: "Opening verification",
+  verifying: "Verifying in a new tab",
   cancelled: "Attempt stopped",
 }
 

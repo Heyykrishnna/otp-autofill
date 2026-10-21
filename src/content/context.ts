@@ -21,7 +21,7 @@ export function verificationHints(target: OtpTarget): {
   const textHints = (container.textContent ?? "")
     .slice(0, 2000)
     .match(
-      /\bsent(?: a)?(?: verification)?(?: code)? to\s+([^\s<>]+@[^\s<>]+)/i,
+      /\bsent(?:\s+(?:you\s+)?a)?(?:\s+\d{1,2}[- ]character)?(?:\s+verification)?(?:\s+code)?\s+to\s+([^\s<>]+@[^\s<>]+)/i,
     )?.[1]
   const visible = textHints
     ? recipientAddresses(textHints.replace(/[.,;:]$/, ""))

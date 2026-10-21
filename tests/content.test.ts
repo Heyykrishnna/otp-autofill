@@ -43,6 +43,24 @@ describe("field detection and autofill", () => {
     expect(fillTarget(target, "042193")).toBe(true)
     expect(target.inputs.map((input) => input.value).join("")).toBe("042193")
   })
+  it("fills explicitly indexed digit fields without maxlength", () => {
+    document.body.innerHTML = `<form><h1>Check your email inbox for your login code</h1>${Array.from({ length: 6 }, (_, index) => `<input id="otp${index}" name="otp${index}" aria-label="Digit ${index + 1} of 6" inputmode="numeric" autocomplete="${index === 0 ? "one-time-code" : "off"}" />`).join("")}<input type="hidden" name="challenge-response" /></form>`
+    const targets = detectTargets()
+    expect(targets).toHaveLength(1)
+    const target = targets[0]
+    if (!target) throw new Error("Expected indexed split target")
+    expect(target.constraints).toEqual({
+      length: 6,
+      numeric: true,
+      pattern: null,
+    })
+    expect(fillTarget(target, "289217")).toBe(true)
+    expect(target.inputs.map((input) => input.value).join("")).toBe("289217")
+  })
+  it("rejects incomplete indexed digit groups", () => {
+    document.body.innerHTML = `<form>${[1, 2, 3, 5, 6].map((position) => `<input aria-label="Digit ${position} of 6" inputmode="numeric" autocomplete="${position === 1 ? "one-time-code" : "off"}" />`).join("")}</form>`
+    expect(detectTargets()).toEqual([])
+  })
   it("preserves meaningful case", () => {
     document.body.innerHTML =
       '<input aria-label="Verification code" maxlength="10" pattern="[A-Za-z0-9]{10}" />'
@@ -114,6 +132,13 @@ it("uses explicit recipient and request evidence without treating masked address
   target = detectTargets()[0]
   if (!target) throw new Error("Expected target")
   expect(verificationHints(target)).toEqual({})
+})
+
+it("reads a recipient from a character-count delivery message", () => {
+  document.body.innerHTML = `<form><p>We've sent a 6-character code to alice@gmail.com. The code expires shortly.</p>${Array.from({ length: 6 }, (_, index) => `<input aria-label="Digit ${index + 1} of 6" inputmode="numeric" autocomplete="${index === 0 ? "one-time-code" : "off"}" />`).join("")}</form>`
+  const target = detectTargets()[0]
+  if (!target) throw new Error("Expected indexed target")
+  expect(verificationHints(target)).toEqual({ recipient: "alice@gmail.com" })
 })
 
 it("sends Enter and validates the form before submitting, without submitting a second time", async () => {

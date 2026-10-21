@@ -10,6 +10,9 @@ export type FlowState =
   | "timed_out"
   | "permission_required"
   | "ambiguous"
+  | "confirmation_required"
+  | "opening_link"
+  | "verifying"
   | "cancelled"
 
 export interface FieldConstraints {
@@ -26,6 +29,31 @@ export interface VerificationContext {
   recipient?: string
   requestId?: string
   strictAfter?: boolean
+}
+
+export interface VerificationLinkContext {
+  id: string
+  startedAt: number
+  hostname: string
+  recipient?: string
+}
+
+export interface EmailVerificationLink {
+  url: string
+  label: string
+}
+
+export interface VerificationLinkCandidate {
+  id: string
+  messageId: string
+  url: string
+  sender: string
+  receivedAt: number
+  subject: string
+  account?: string
+  recipients?: string[]
+  forwarded?: boolean
+  senderAuthentication?: "pass" | "fail" | "unknown"
 }
 
 export interface Candidate {
@@ -119,6 +147,7 @@ export interface EmailMessage {
   forwarded?: boolean
   senderAuthentication?: "pass" | "fail" | "unknown"
   verificationDomains?: string[]
+  verificationLinks?: EmailVerificationLink[]
 }
 
 export interface GmailPart {
@@ -131,6 +160,8 @@ export interface GmailPart {
 
 export const FLOW_TIMEOUT_MS = 120_000
 export const MAX_EMAIL_AGE_MS = 180_000
+export const MAX_VERIFICATION_CLICKS = 6
+export const MAX_VERIFICATION_NAVIGATIONS = 12
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 export const DEFAULT_SETTINGS: Settings = {
   autofill: true,
