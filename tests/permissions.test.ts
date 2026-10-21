@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { activateSite, syncSiteScripts } from "../src/background/permissions"
+import {
+  activateSite,
+  syncSiteScripts,
+  wakeSite,
+} from "../src/background/permissions"
 
 const send = vi.fn()
 const execute = vi.fn()
@@ -36,6 +40,16 @@ describe("permission-scoped detection", () => {
   it("injects the isolated script if no controller is present", async () => {
     send.mockRejectedValueOnce(new Error("No receiver"))
     await activateSite(1)
+    expect(execute).toHaveBeenCalledWith({
+      target: { tabId: 1 },
+      files: ["otp-content.js"],
+      world: "ISOLATED",
+    })
+  })
+  it("injects the isolated script when an approved tab wakes without a controller", async () => {
+    send.mockRejectedValueOnce(new Error("No receiver"))
+    await wakeSite(1)
+    expect(send).toHaveBeenCalledWith(1, { type: "WAKE" })
     expect(execute).toHaveBeenCalledWith({
       target: { tabId: 1 },
       files: ["otp-content.js"],

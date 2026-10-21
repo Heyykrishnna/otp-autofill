@@ -10,6 +10,7 @@ function Laboratory() {
         "single",
         "split",
         "indexed",
+        "controller",
         "alpha",
         "dynamic",
         "negative",
@@ -70,6 +71,7 @@ function Laboratory() {
         <option value="single">React controlled numeric input</option>
         <option value="split">Six separate inputs</option>
         <option value="indexed">Six indexed inputs without maxlength</option>
+        <option value="controller">Six visual slots with one input</option>
         <option value="alpha">Case-sensitive alphanumeric</option>
         <option value="dynamic">Dynamically mounted field</option>
         <option value="negative">Unrelated fields</option>
@@ -99,6 +101,23 @@ function Laboratory() {
             <button type="button" onClick={() => setDynamic(true)}>
               Request code
             </button>
+          ) : kind === "controller" ? (
+            <section aria-label="Luma-style verification code">
+              <p>Please enter the 6 digit code we sent to test@example.com.</p>
+              <div className="otp-controller">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <span aria-hidden="true" className="digit-slot" key={index} />
+                ))}
+                <input
+                  aria-label="Verification code"
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                />
+              </div>
+            </section>
           ) : kind === "split" || kind === "indexed" ? (
             <fieldset aria-label="Verification code">
               <legend>Verification code</legend>

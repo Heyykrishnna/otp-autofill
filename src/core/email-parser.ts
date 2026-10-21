@@ -17,7 +17,7 @@ import type {
 import { isRecord } from "./validation"
 
 const PHRASE =
-  /(?:one[ -]?time\s+(?:password|code)|verification\s+code|security\s+code|sign[ -]?in\s+code|login\s+code|authentication\s+code|passcode|\botp\b)/gi
+  /(?:one[ -]?time\s+(?:password|code|passcode)|(?:verification|security|sign[ -]?in|login|authentication|authorization|confirmation|access|temporary|single[ -]?use|\d{1,2}[- ](?:character|digit))\s+(?:code|passcode)|\blogin[ _-]?code\b|\bpasscode\b|\botp\b)/gi
 const NEGATIVE =
   /(?:(?:invoice|order|account|request|session|challenge)\s+(?:number|id|no\.?|#)|tracking(?:\s+(?:number|id|reference|no\.?|#))?|reference|phone(?:\s+number)?|telephone(?:\s+number)?)\s*[:#-]?\s*$/i
 const STOP_WORDS = new Set([
@@ -171,9 +171,9 @@ function collectText(part: GmailPart, forwarded = false): string {
 }
 
 const LINK_ACTION =
-  /\b(?:activate|complete|confirm|continue|verify)\b.{0,40}\b(?:account|email|registration|verification)?\b|\b(?:account|email|registration)\b.{0,40}\b(?:activate|confirm|verify)\b/i
+  /\b(?:activate|complete|confirm|continue|verify|sign[ -]?in|log[ -]?in)\b.{0,40}\b(?:account|email|registration|verification)?\b|\b(?:account|email|registration)\b.{0,40}\b(?:activate|confirm|verify|sign[ -]?in|log[ -]?in)\b/i
 const LINK_NEGATIVE =
-  /\b(?:cancel|delete|invoice|manage preferences|order|password reset|pay|purchase|receipt|refund|remove|unsubscribe)\b/i
+  /\b(?:cancel|delete|invoice|manage preferences|order|(?:password\s+reset|reset\s+password)|pay|purchase|receipt|refund|remove|unsubscribe)\b/i
 
 function safeVerificationUrl(value: string): string | null {
   if (value.length > 2_048) return null
@@ -319,6 +319,8 @@ export function extractCandidates(message: EmailMessage): Candidate[] {
   const text = `${message.subject}\n${body}`
     .slice(0, 100_000)
     .replace(/[\u00a0\u202f]/g, " ")
+    .replace(/[\u2010-\u2015]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
   if (
     /\b(?:this|your) (?:verification |security )?code (?:has |is )?expired\b/i.test(
       text,
@@ -379,8 +381,8 @@ export function extractCandidates(message: EmailMessage): Candidate[] {
     if (/^\d{4}$/.test(code) && /(?:year|copyright|©)\s*$/i.test(before))
       continue
     const direct =
-      nearest.distance <= 24 ||
-      /^\s*(?:is|to (?:sign|log) in(?:to)? (?:your|the) account(?: on this device)?)?\s*[:#-]?\s*$/i.test(
+      nearest.distance <= 45 ||
+      /^\s*(?:is|to (?:sign|log) in(?:to)? (?:your|the) account(?: on (?:this|a|another|diferent|different) device)?)?\s*[:#-]?\s*$/i.test(
         nearest.bridge,
       )
     const confidence = direct ? 0.98 : 0.85

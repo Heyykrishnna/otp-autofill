@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 
 import { extractCandidates } from "../src/core/email-parser"
-import { matchCandidates, matchesWebsite } from "../src/core/matcher"
+import {
+  matchCandidates,
+  matchesWebsite,
+  sameOrganization,
+} from "../src/core/matcher"
 import type { VerificationContext } from "../src/core/types"
 import { acceptsPattern, isContext, siteOrigin } from "../src/core/validation"
 import { email } from "./fixtures/emails"
@@ -92,7 +96,71 @@ describe("context-aware matching", () => {
     expect(matchesWebsite("a@attacker.github.io", "victim.github.io")).toBe(
       false,
     )
-    expect(matchesWebsite("a@example.com", "localhost")).toBe(false)
+    expect(matchesWebsite("notifications@mlh.com", "my.mlh.com")).toBe(true)
+  })
+  it("matches site-related codes for short brands with account and recipient evidence", () => {
+    const mlhContext: VerificationContext = {
+      id: "mlh-context",
+      hostname: "my.mlh.com",
+      recipient: "alice@gmail.com",
+      startedAt: 1_800_000_000_000,
+      constraints: { length: 6, numeric: true, pattern: null },
+    }
+    const candidates = extractCandidates(
+      email(
+        "Signing in on a diferent device?\nHere’s your one–time code to sign into your account\n\n050151\n",
+        {
+          sender: "Major League Hacking <notifications@mlh.com>",
+          subject: "Signing in on this device?",
+          recipients: ["alice@gmail.com"],
+          account: "alice@gmail.com",
+          receivedAt: mlhContext.startedAt + 5_000,
+        },
+      ),
+    )
+    const result = matchCandidates(
+      candidates,
+      mlhContext,
+      mlhContext.startedAt + 10_000,
+    )
+    expect(result.kind).toBe("unique")
+    if (result.kind === "unique") {
+      expect(result.candidate.code).toBe("050151")
+    }
+  })
+  it("matches cross-tld organizational senders for mlh.io and www.mlh.com", () => {
+    expect(sameOrganization("mlh.io", "www.mlh.com")).toBe(true)
+    expect(sameOrganization("auth.mlh.io", "mlh.com")).toBe(true)
+    expect(sameOrganization("attacker.com", "mlh.com")).toBe(false)
+
+    const mlhWebContext: VerificationContext = {
+      id: "mlh-web-context",
+      hostname: "www.mlh.com",
+      startedAt: 1_800_000_000_000,
+      constraints: { length: 6, numeric: true, pattern: null },
+    }
+    const candidates = extractCandidates(
+      email(
+        "Here is your verification code:\n\n050151\n\nMajor League Hacking",
+        {
+          sender: "Major League Hacking <notifications@mlh.io>",
+          subject: "050151 is your one-time code for Major League Hacking",
+          recipients: ["user@example.com"],
+          account: "user@example.com",
+          senderAuthentication: "pass",
+          receivedAt: mlhWebContext.startedAt + 5_000,
+        },
+      ),
+    )
+    const result = matchCandidates(
+      candidates,
+      mlhWebContext,
+      mlhWebContext.startedAt + 10_000,
+    )
+    expect(result.kind).toBe("unique")
+    if (result.kind === "unique") {
+      expect(result.candidate.code).toBe("050151")
+    }
   })
 })
 

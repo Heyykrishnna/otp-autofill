@@ -18,10 +18,19 @@ describe("verification email extraction", () => {
     ["Your verification code is UCSIAGUBQQ", "UCSIAGUBQQ"],
     ["Your sign-in code: aB7xQ9", "aB7xQ9"],
     ["482193 is your one-time code", "482193"],
+    ["314159\nis your Luma sign-in code.", "314159"],
     ["OTP: 0427", "0427"],
     ["Passcode: 482\u00a0193", "482193"],
     ["Your verification code: AB12-cD34", "AB12-cD34"],
     ["Here’s your one-time code to sign into your account\n289217", "289217"],
+    ["We've sent a 6-character code to your email: 839201", "839201"],
+    ["Your confirmation code is 482193.", "482193"],
+    ["Your temporary code: 987654", "987654"],
+    ["Your login code is 654321.", "654321"],
+    [
+      "Signing in on this device?\nClick the link to automatically sign into your account on this device\nSign in\nSigning in on a diferent device?\nHere’s your one–time code to sign into your account\n\n050151\nIf you didn’t request this email, there’s nothing to worry about - you can safely ignore it.",
+      "050151",
+    ],
   ])("extracts supported format from %s", (text, code) => {
     expect(
       extractCandidates(email(text)).map((candidate) => candidate.code),
@@ -93,6 +102,28 @@ describe("verification link extraction", () => {
     )
     expect(parsed && extractVerificationLinks(parsed)).toMatchObject([
       { url: "https://login.example.com/verify?a=1&b=2" },
+    ])
+  })
+
+  it("extracts sign-in verification links from device sign-in emails", () => {
+    const parsed = parseGmailMessage(
+      gmailMessage("", {
+        payload: {
+          mimeType: "text/html",
+          headers: [
+            { name: "From", value: "notifications@mlh.com" },
+            { name: "Subject", value: "Signing in on this device?" },
+          ],
+          body: {
+            data: Buffer.from(
+              '<p>Click the link to automatically sign into your account on this device</p><a href="https://my.mlh.com/users/sign_in?login_token=secret123">Sign in</a>',
+            ).toString("base64url"),
+          },
+        },
+      }),
+    )
+    expect(parsed && extractVerificationLinks(parsed)).toMatchObject([
+      { url: "https://my.mlh.com/users/sign_in?login_token=secret123" },
     ])
   })
 

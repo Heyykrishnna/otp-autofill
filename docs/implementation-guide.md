@@ -40,7 +40,7 @@ The content script records a UUID, detection timestamp, hostname, recipient/requ
 
 ### 3. Search and parse recent email
 
-The Gmail adapter queries verification-related messages received after detection minus fifteen seconds, excluding spam and trash. It searches only the verified primary inbox and explicitly authorized companion inboxes, at most two inboxes concurrently and ten message IDs per inbox. An additional result page triggers conservative retry rather than accepting a partial set. Bodies are fetched in batches of at most three, decoded and parsed locally.
+The Gmail adapter queries verification-related messages from the two minutes before field detection, excluding spam and trash, then applies the stricter per-attempt timestamp checks before matching. It searches only the verified primary inbox and explicitly authorized companion inboxes, at most two inboxes concurrently and ten message IDs per inbox. An additional result page triggers conservative retry rather than accepting a partial set. Bodies are fetched in batches of at most three, decoded and parsed locally.
 
 Extraction requires a known verification phrase and a plausible nearby token. It rejects unrelated number contexts, preserves case and normalizes supported grouped numeric spacing. HTML becomes text instead of being rendered. Named attachments, explicit attachment dispositions and attached messages are excluded. Quoted reply history is stripped; recognized forwarded messages require confirmation.
 

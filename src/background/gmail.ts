@@ -133,7 +133,7 @@ export class GmailClient {
     seen: Set<string>,
     signal: AbortSignal,
   ): Promise<EmailMessage[]> {
-    const query = `after:${Math.floor((startedAt - 15_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "sign-in code" "login code" "authentication code" "verify your email" "confirm your email" "verification link" "activation link" passcode otp}`
+    const query = `after:${Math.floor((startedAt - 120_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "signing in" "sign-in" "sign in" "login code" "login" "authentication code" "verify your email" "confirm your email" "verification link" "activation link" passcode otp code}`
     const params = new URLSearchParams({
       q: query,
       maxResults: "10",
@@ -169,7 +169,11 @@ export class GmailClient {
         }),
       )
       for (const result of batch) {
-        if (result.message) messages.push(result.message)
+        if (result.message)
+          messages.push({
+            ...result.message,
+            account: result.message.account ?? this.mailbox,
+          })
       }
     }
     for (const id of ids) seen.add(id)
