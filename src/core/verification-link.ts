@@ -1,5 +1,5 @@
 import { canonicalEmail } from "./evidence"
-import { matchesWebsite, sameWebsite } from "./matcher"
+import { matchesWebsite, sameOrganization, sameWebsite } from "./matcher"
 import {
   MAX_EMAIL_AGE_MS,
   type VerificationLinkCandidate,
@@ -19,9 +19,10 @@ export function eligibleVerificationLinks(
   const recipient = context.recipient ? canonicalEmail(context.recipient) : null
   return candidates.filter((candidate) => {
     const age = now - candidate.receivedAt
-    const destination = candidate.account
-      ? [candidate.account]
-      : (candidate.recipients ?? [])
+    const destination = [
+      ...(candidate.account ? [candidate.account] : []),
+      ...(candidate.recipients ?? []),
+    ]
     let hostname: string
     try {
       hostname = new URL(candidate.url).hostname
@@ -33,12 +34,14 @@ export function eligibleVerificationLinks(
       destination.some((address) => canonicalEmail(address) === recipient)
     const trustedSender =
       matchesWebsite(candidate.sender, context.hostname) ||
+      sameOrganization(candidate.sender, context.hostname) ||
       candidate.senderAuthentication === "pass"
     return (
       age >= -15_000 &&
       age <= MAX_EMAIL_AGE_MS &&
       candidate.receivedAt >= context.startedAt - 15_000 &&
-      sameWebsite(hostname, context.hostname) &&
+      (sameWebsite(hostname, context.hostname) ||
+        sameOrganization(hostname, context.hostname)) &&
       addressed &&
       candidate.senderAuthentication !== "fail" &&
       trustedSender

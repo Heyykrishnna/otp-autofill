@@ -407,7 +407,8 @@ export class Coordinator {
         return { state: "cancelled" }
       const messages = Array.isArray(discovery) ? discovery : discovery.messages
       current.warnings = Array.isArray(discovery) ? [] : discovery.warnings
-      current.candidates.push(...messages.flatMap(extractCandidates))
+      const extracted = messages.flatMap(extractCandidates)
+      current.candidates.push(...extracted)
       current.candidates = eligibleCandidates(
         current.candidates,
         context,

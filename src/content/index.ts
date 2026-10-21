@@ -156,7 +156,10 @@ function startController(): void {
 
   async function poll(): Promise<void> {
     if (!context || !target || stopped || filled || busy) return
-    if (!stillCurrent() || target.inputs.some((input) => input.value !== ""))
+    if (
+      !stillCurrent() ||
+      target.inputs.some((input) => input.value.trim() !== "")
+    )
       return finish("cancelled")
     if (hasExpired(context.startedAt)) return finish("timed_out")
     if (document.visibilityState !== "visible") {
@@ -193,8 +196,9 @@ function startController(): void {
         target?.inputs.some(
           (input) => input.getAttribute("aria-invalid") === "true",
         )
-      )
+      ) {
         return finish("failed")
+      }
       if (!stillCurrent()) {
         const changedRequest =
           target &&
@@ -221,7 +225,7 @@ function startController(): void {
     const targets = detectTargets()
     if (
       targets.length !== 1 ||
-      targets[0]?.inputs.some((input) => input.value !== "")
+      targets[0]?.inputs.some((input) => input.value.trim() !== "")
     )
       return
     target = targets[0] ?? null

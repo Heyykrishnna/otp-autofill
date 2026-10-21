@@ -8,9 +8,9 @@ Version 0.4.0 validated locally on 21 October 2026 with Node.js 24 and the proje
 | `npm run typecheck` within the check command    | Passed strict TypeScript checks                                                                                    |
 | `npm run lint` within the check command         | Passed                                                                                                             |
 | `npm run format:check` within the check command | Passed                                                                                                             |
-| `npm test` within the check command             | 151 tests passed across eleven files                                                                               |
+| `npm test` within the check command             | 176 tests passed across twelve files                                                                               |
 | `npm run build` within the check command        | Passed; installable Manifest V3 output generated                                                                   |
-| `npm run test:e2e` within the check command     | 36 Chromium browser tests passed                                                                                   |
+| `npm run test:e2e` within the check command     | 38 Chromium browser tests passed                                                                                   |
 | `npm audit --audit-level=moderate`              | Zero vulnerabilities reported                                                                                      |
 | `npm ls --depth=0`                              | Dependency tree resolved without missing or invalid dependencies                                                   |
 | `node scripts/package.mjs`                      | ZIP created successfully with 13 build files                                                                       |
@@ -26,7 +26,7 @@ Initial failures found during development were corrected and covered by the fina
 
 ## Remaining release requirements
 
-- The owner confirmed **Gmail connected** after reloading the extension and completing its Google connection flow. That status was reported by the owner; browser automation could not inspect the extension page directly. A real OTP retrieval/fill, cancellation, and Google-side revocation were not independently tested.
+- The installed Version 0.4.0 popup was inspected in Chrome after reloading the extension. It reported **Gmail connected**, automatic fill enabled and access granted on the controlled OTP page. A real OTP retrieval/fill after the controller-recovery change, cancellation, and Google-side revocation were not independently tested.
 - Actual Chrome host-permission prompts and supported live websites require the controlled beta checks in `testing.md`.
 - Google restricted-scope verification, public privacy-policy publication, and Chrome Web Store review remain outstanding.
 - The PRD's proposed accuracy and latency targets have not been established through a representative beta corpus. Fixture success is not a production performance claim.
@@ -85,4 +85,14 @@ The verification-link feature was validated with fresh HTTPS link extraction, si
 
 The live MLH signup flow was inspected in Chrome. Its form uses six numeric inputs labelled “Digit 1 of 6” through “Digit 6 of 6,” omits `maxlength`, and applies `autocomplete="one-time-code"` only to the first input. Its message uses a “one-time code to sign into your account” phrase and an authenticated `mlh.io` sender while the form is hosted on `mlh.com`.
 
-The detector now groups only complete, uniquely indexed four-to-twelve-input sequences. The parser distinguishes the bare word “account” in a bounded sign-in phrase from an account-number label. Cross-suffix sibling-domain matching requires sender-aligned verification domains, sender-name and subject corroboration, passing aligned Gmail authentication and an addressed authorized inbox; incomplete evidence does not auto-fill. The controlled MLH-style end-to-end regression fills all six React fields and the negative unit cases preserve abstention.
+The detector now groups only complete, uniquely indexed four-to-twelve-input sequences. The parser distinguishes the bare word “account” in a bounded sign-in phrase from an account-number label. Cross-suffix sibling-domain matching requires sender-aligned verification domains, sender-name and subject corroboration, passing aligned Gmail authentication and an addressed authorized inbox; incomplete evidence does not auto-fill. The controlled MLH-style end-to-end regression uses an authenticated `mlh.io` sender with an `mlh.com` page, fills all six React fields, and preserves abstention in negative unit cases.
+
+## Luma visual-slot compatibility
+
+The live Luma sign-in flow was inspected in Chrome. Its six visible code slots are backed by one numeric React-controlled input with `autocomplete="one-time-code"`, no `maxlength`, and a nearby six-digit instruction. The resolver counts the bounded visual slots, applies a six-digit constraint, and fills the logical input through the native value setter and input/change events. Its email format places the numeric code before “is your Luma sign-in code”; parser and controlled end-to-end regressions cover that ordering without retaining a live code.
+
+## Approved-site controller recovery
+
+Live Chrome diagnosis showed an approved MLH page with a visible OTP form while the popup remained in its idle state. The page had survived an extension update and no longer contained the isolated content controller. Retry previously sent a message only, so a missing receiver produced an instruction to reload instead of recovering. Retry, Gmail reconnect, automatic-fill re-enable, approved-tab activation and extension installation now inject the controller when it is absent. A controlled browser regression removes the registered controller, opens the OTP page, invokes “Find & fill OTP,” and verifies successful reinjection and fill without reloading the page.
+
+After the validated build was synchronized, Chrome was restarted with session restoration. On an approved controlled page with a Luma-style single logical input and six visual slots, the installed popup entered **Waiting for your email** instead of the former idle state and displayed Version 0.4.0. The loopback companion responded on `127.0.0.1:43127`, rejected an unapproved extension origin with HTTP 403, and the popup advanced from a temporary availability warning to active Gmail lookup. MLH and Luma rate-limited additional live sign-in requests during this validation, so a fresh provider email could not be requested safely after the fix; the controlled Chromium regressions cover both site structures and missing-controller recovery.

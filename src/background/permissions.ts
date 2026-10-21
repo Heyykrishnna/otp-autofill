@@ -2,8 +2,11 @@ import { isRecord, siteOrigin } from "../core/validation"
 
 export const CONTENT_SCRIPT_FILE = "otp-content.js"
 
-export async function activateSite(tabId: number): Promise<void> {
-  const resumed = await chrome.tabs.sendMessage(tabId, { type: "RETRY" }).then(
+async function sendOrInject(
+  tabId: number,
+  type: "RETRY" | "WAKE",
+): Promise<void> {
+  const resumed = await chrome.tabs.sendMessage(tabId, { type }).then(
     (result: unknown) => isRecord(result) && result.ok === true,
     () => false,
   )
@@ -13,6 +16,14 @@ export async function activateSite(tabId: number): Promise<void> {
       files: [CONTENT_SCRIPT_FILE],
       world: "ISOLATED",
     })
+}
+
+export function activateSite(tabId: number): Promise<void> {
+  return sendOrInject(tabId, "RETRY")
+}
+
+export function wakeSite(tabId: number): Promise<void> {
+  return sendOrInject(tabId, "WAKE")
 }
 
 export async function syncSiteScripts(): Promise<void> {

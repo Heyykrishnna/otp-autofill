@@ -14,6 +14,7 @@ import {
   activeTab,
   activateSite,
   syncSiteScripts,
+  wakeSite,
 } from "./background/permissions"
 import { readSettings, updateSettings } from "./background/settings"
 import type { Snapshot } from "./core/types"
@@ -55,6 +56,19 @@ function run(operation: Promise<unknown>): void {
     systemError =
       "A background action could not finish. Reload the extension and recheck site permissions."
   })
+}
+
+async function hasSiteAccess(tab: chrome.tabs.Tab | null): Promise<boolean> {
+  const origin = siteOrigin(tab?.url)
+  return Boolean(
+    origin && (await chrome.permissions.contains({ origins: [origin] })),
+  )
+}
+
+async function activateCurrentSite(): Promise<void> {
+  const tab = await activeTab()
+  if (tab?.id !== undefined && (await hasSiteAccess(tab)))
+    await activateSite(tab.id)
 }
 
 async function snapshot(): Promise<Snapshot> {
@@ -128,11 +142,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
           revocationPending: false,
           accountEmail,
         })
-        const tab = await activeTab()
-        if (tab?.id !== undefined)
-          await chrome.tabs
-            .sendMessage(tab.id, { type: "RETRY" })
-            .catch(() => false)
+        await activateCurrentSite()
         return { ok: true }
       } finally {
         connecting = false
@@ -255,11 +265,7 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
         await linkCoordinator.stopAll()
         await stopContent()
       } else {
-        const tab = await activeTab()
-        if (tab?.id !== undefined)
-          await chrome.tabs
-            .sendMessage(tab.id, { type: "RETRY" })
-            .catch(() => false)
+        await activateCurrentSite()
       }
       return { ok: true }
     }
@@ -299,7 +305,12 @@ async function handleUi(message: Record<string, unknown>): Promise<unknown> {
         return { ok: false, error: "Open a supported verification page first." }
       await coordinator.remove(tab.id)
       try {
-        await chrome.tabs.sendMessage(tab.id, { type: "RETRY" })
+        if (!(await hasSiteAccess(tab)))
+          return {
+            ok: false,
+            error: "Grant access to the current site first.",
+          }
+        await activateSite(tab.id)
         return { ok: true }
       } catch {
         return {
@@ -454,9 +465,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 })
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   run(
-    ready.then(() =>
-      chrome.tabs.sendMessage(tabId, { type: "WAKE" }).catch(() => false),
-    ),
+    ready.then(async () => {
+      const tab = await chrome.tabs.get(tabId)
+      if (await hasSiteAccess(tab)) await wakeSite(tabId)
+    }),
   )
 })
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
@@ -482,7 +494,12 @@ chrome.permissions.onRemoved.addListener(() => {
   )
 })
 chrome.runtime.onInstalled.addListener(() => {
-  run(sync())
+  run(
+    ready.then(async () => {
+      await sync()
+      await activateCurrentSite()
+    }),
+  )
 })
 
 export {}

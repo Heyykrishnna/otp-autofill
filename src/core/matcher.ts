@@ -41,6 +41,12 @@ function registrableLabel(hostname: string): string | null {
   )
 }
 
+export function sameOrganization(left: string, right: string): boolean {
+  const leftLabel = registrableLabel(left)
+  const rightLabel = registrableLabel(right)
+  return leftLabel !== null && leftLabel.length >= 3 && leftLabel === rightLabel
+}
+
 function organizationEvidence(
   candidate: Candidate,
   context: VerificationContext,
@@ -56,14 +62,29 @@ function organizationEvidence(
   )
     return false
   const verificationDomains = candidate.verificationDomains ?? []
-  const domains = verificationDomains.length
-    ? verificationDomains
-    : (candidate.audiences ?? [])
-  if (
-    domains.length === 0 ||
-    !domains.every((domain) => sameWebsite(domain, sender))
-  )
-    return false
+  if (verificationDomains.length > 0) {
+    if (
+      !verificationDomains.every(
+        (domain) =>
+          sameWebsite(domain, sender) ||
+          sameWebsite(domain, context.hostname) ||
+          registrableLabel(domain) === label,
+      )
+    )
+      return false
+  } else {
+    const domains = candidate.audiences ?? []
+    if (
+      domains.length > 0 &&
+      !domains.some(
+        (domain) =>
+          sameWebsite(domain, sender) ||
+          sameWebsite(domain, context.hostname) ||
+          registrableLabel(domain) === label,
+      )
+    )
+      return false
+  }
   const words = (value: string) =>
     value
       .toLowerCase()
@@ -87,30 +108,50 @@ function senderRelation(
   context: VerificationContext,
 ): "direct" | "inferred" | "confirm" | null {
   if (matchesWebsite(candidate.sender, context.hostname)) return "direct"
-  const domains = candidate.verificationDomains ?? []
-  const intended = domains.some((domain) =>
-    sameWebsite(domain, context.hostname),
-  )
-  const recipient = candidate.account ? canonicalEmail(candidate.account) : null
+  const account = candidate.account ? canonicalEmail(candidate.account) : null
+  const recipient = context.recipient ? canonicalEmail(context.recipient) : null
   const addressed =
-    recipient &&
-    candidate.recipients?.some(
-      (address) => canonicalEmail(address) === recipient,
+    Boolean(
+      !account ||
+      candidate.recipients?.some(
+        (address) => canonicalEmail(address) === account,
+      ),
+    ) &&
+    Boolean(
+      !recipient ||
+      candidate.recipients?.some(
+        (address) => canonicalEmail(address) === recipient,
+      ) ||
+      (account && account === recipient),
     )
+  const domains = candidate.verificationDomains ?? []
+  const intended = domains.some(
+    (domain) =>
+      sameWebsite(domain, context.hostname) ||
+      sameOrganization(domain, context.hostname),
+  )
   if (organizationEvidence(candidate, context))
     return candidate.senderAuthentication === "pass" && addressed
       ? "inferred"
       : "confirm"
   if (
     intended &&
-    domains.every((domain) => sameWebsite(domain, context.hostname)) &&
+    domains.every(
+      (domain) =>
+        sameWebsite(domain, context.hostname) ||
+        sameOrganization(domain, context.hostname),
+    ) &&
     candidate.senderAuthentication === "pass" &&
     addressed
   )
     return "inferred"
   if (
     intended ||
-    candidate.audiences?.some((domain) => sameWebsite(domain, context.hostname))
+    candidate.audiences?.some(
+      (domain) =>
+        sameWebsite(domain, context.hostname) ||
+        sameOrganization(domain, context.hostname),
+    )
   )
     return "confirm"
   const brand = getDomain(context.hostname, {
@@ -157,9 +198,10 @@ export function eligibleCandidates(
   const recipient = context.recipient ? canonicalEmail(context.recipient) : null
   return candidates.filter((candidate) => {
     const age = now - candidate.receivedAt
-    const destination = candidate.account
-      ? [candidate.account]
-      : (candidate.recipients ?? [])
+    const destination = [
+      ...(candidate.account ? [candidate.account] : []),
+      ...(candidate.recipients ?? []),
+    ]
     return (
       age >= -15_000 &&
       age <= MAX_EMAIL_AGE_MS &&

@@ -184,3 +184,82 @@ it("respects prevented Enter, changed values and incomplete forms", async () => 
   expect(submit).not.toHaveBeenCalled()
   expect(enterTarget(target, "987654", new WeakSet())).toBe(false)
 })
+
+it("detects and fills segmented boxes nested in parent divs with code-index IDs and heading signals", () => {
+  document.body.innerHTML = `
+    <div class="auth-card">
+      <h1>Check your email inbox for your login code</h1>
+      <p>We've sent a 6-character code to alice@gmail.com. The code expires shortly, so please enter it soon.</p>
+      <div id="otp-container" class="otp-boxes">
+        <div class="box-slot"><input id="code-0" maxlength="1" /></div>
+        <div class="box-slot"><input id="code-1" maxlength="1" /></div>
+        <div class="box-slot"><input id="code-2" maxlength="1" /></div>
+        <div class="box-slot"><input id="code-3" maxlength="1" /></div>
+        <div class="box-slot"><input id="code-4" maxlength="1" /></div>
+        <div class="box-slot"><input id="code-5" maxlength="1" /></div>
+      </div>
+      <button type="button">Continue</button>
+    </div>
+  `
+  const targets = detectTargets()
+  expect(targets).toHaveLength(1)
+  const target = targets[0]
+  if (!target) throw new Error("Expected segmented target")
+  expect(target.inputs).toHaveLength(6)
+  expect(target.constraints.length).toBe(6)
+  expect(verificationHints(target)).toEqual({
+    recipient: "alice@gmail.com",
+  })
+  expect(fillTarget(target, "839201")).toBe(true)
+  expect(target.inputs.map((input) => input.value).join("")).toBe("839201")
+})
+
+it("detects segmented inputs with sequential prefix IDs inside an OTP container", () => {
+  document.body.innerHTML = `
+    <div class="verification-wrapper">
+      <div class="otp-input-group">
+        <input id="otp_0" maxlength="1" />
+        <input id="otp_1" maxlength="1" />
+        <input id="otp_2" maxlength="1" />
+        <input id="otp_3" maxlength="1" />
+        <input id="otp_4" maxlength="1" />
+        <input id="otp_5" maxlength="1" />
+      </div>
+    </div>
+  `
+  const targets = detectTargets()
+  expect(targets).toHaveLength(1)
+  const target = targets[0]
+  if (!target) throw new Error("Expected segmented target")
+  expect(target.inputs).toHaveLength(6)
+  expect(fillTarget(target, "123456")).toBe(true)
+  expect(target.inputs.map((input) => input.value).join("")).toBe("123456")
+})
+
+it("detects segmented inputs with bracket indices and updates React value trackers", () => {
+  document.body.innerHTML = `
+    <div class="auth-section">
+      <h2>Enter your verification code</h2>
+      <div class="inputs-row">
+        ${Array.from({ length: 6 }, (_, index) => `<input id="code[${index}]" name="code[${index}]" />`).join("")}
+      </div>
+    </div>
+  `
+  const targets = detectTargets()
+  expect(targets).toHaveLength(1)
+  const target = targets[0]
+  if (!target) throw new Error("Expected segmented target")
+  expect(target.inputs).toHaveLength(6)
+  const trackerValues: string[] = []
+  for (const input of target.inputs) {
+    Object.defineProperty(input, "_valueTracker", {
+      value: {
+        setValue: (value: string) => trackerValues.push(value),
+      },
+      configurable: true,
+    })
+  }
+  expect(fillTarget(target, "050151")).toBe(true)
+  expect(target.inputs.map((input) => input.value).join("")).toBe("050151")
+  expect(trackerValues).toHaveLength(6)
+})

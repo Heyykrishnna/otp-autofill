@@ -51,7 +51,7 @@ export function verificationDomains(subject: string, text: string): string[] {
       }
     })
   const patterns = [
-    /\b(?:visit|continue (?:at|on|to)|sign[ -]?in (?:at|to)|log[ -]?in (?:at|to)|verify (?:at|on)|authenticate (?:at|on)|code for)\s+(?:https:\/\/)?([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63})\b/gi,
+    /\b(?:visit|continue (?:at|on|to)|sign[ -]?in (?:at|to|into)|log[ -]?in (?:at|to|into)|verify (?:at|on)|authenticate (?:at|on)|code for)\s+(?:https:\/\/)?([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63})\b/gi,
     /\b((?:[a-z0-9-]+\.)+[a-z]{2,63})(?:'s)?\s+(?:verification|sign[ -]?in|login|security)\s+code\b/gi,
   ]
   for (const pattern of patterns)

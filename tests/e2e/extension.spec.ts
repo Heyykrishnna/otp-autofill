@@ -44,6 +44,7 @@ const test = base.extend<{
     manifest.host_permissions.push(
       "https://login.example.com/*",
       "https://www.mlh.com/*",
+      "https://luma.com/*",
       "http://127.0.0.1/*",
     )
     await writeFile(manifestPath, JSON.stringify(manifest))
@@ -74,7 +75,11 @@ const test = base.extend<{
         await chrome.scripting.registerContentScripts([
           {
             id: "fixture-grant",
-            matches: ["https://login.example.com/*", "https://www.mlh.com/*"],
+            matches: [
+              "https://login.example.com/*",
+              "https://www.mlh.com/*",
+              "https://luma.com/*",
+            ],
             js: ["otp-content.js"],
             runAt: "document_idle",
           },
@@ -88,6 +93,13 @@ const test = base.extend<{
         await route.fulfill({ response })
       })
       await context.route("https://www.mlh.com/**", async (route) => {
+        const url = new URL(route.request().url())
+        const response = await context.request.get(
+          `http://localhost:4173${url.pathname}${url.search}`,
+        )
+        await route.fulfill({ response })
+      })
+      await context.route("https://luma.com/**", async (route) => {
         const url = new URL(route.request().url())
         const response = await context.request.get(
           `http://localhost:4173${url.pathname}${url.search}`,
@@ -270,6 +282,28 @@ test("fills MLH-style indexed fields from an authenticated sibling domain", asyn
   )
 })
 
+test("fills a Luma-style visual-slot widget from a code-before-phrase email", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, {
+    codes: ["314159"],
+    sender: "Luma <support@luma.com>",
+    subject: "314159 is your Luma sign-in code",
+    body: "314159\nis your Luma sign-in code.",
+  })
+  const page = await extension.context.newPage()
+  await page.goto(
+    "https://luma.com/?scenario=controller&recipient=test@example.com",
+  )
+  await expect(page.getByLabel("React state")).toHaveText(
+    "React state: 314159",
+    { timeout: 15_000 },
+  )
+  await expect(
+    page.getByRole("textbox", { name: "Verification code" }),
+  ).toHaveValue("314159")
+})
+
 test("detects a form mounted after page load", async ({ extension }) => {
   await inbox(extension.worker, { codes: ["482193"] })
   const page = await extension.context.newPage()
@@ -277,6 +311,29 @@ test("detects a form mounted after page load", async ({ extension }) => {
   await page.getByRole("button", { name: "Request code" }).click()
   await expect(page.getByLabel("React state")).toHaveText(
     "React state: 482193",
+    { timeout: 15_000 },
+  )
+})
+
+test("Find and fill reinjects a missing controller on an approved open page", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, { codes: ["482193"] })
+  await extension.worker.evaluate(async () => {
+    await chrome.scripting.unregisterContentScripts({ ids: ["fixture-grant"] })
+  })
+  const page = await extension.context.newPage()
+  await page.goto("https://login.example.com/")
+  await expect(page.getByLabel("Email verification code")).toHaveValue("")
+
+  const popup = await extension.context.newPage()
+  await popup.goto(`chrome-extension://${extension.id}/popup.html`)
+  await page.bringToFront()
+  await popup.reload()
+  await popup.getByRole("button", { name: /Find & fill OTP/ }).click()
+
+  await expect(page.getByLabel("Email verification code")).toHaveValue(
+    "482193",
     { timeout: 15_000 },
   )
 })

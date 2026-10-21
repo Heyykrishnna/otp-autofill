@@ -120,7 +120,7 @@ export function acceptsPattern(code: string, pattern: string | null): boolean {
   if (!pattern) return true
   pattern = pattern.replace(/^\^/, "").replace(/\$$/, "")
   if (
-    !/^\^?(?:\[0-9\]|\\d|\[A-Za-z0-9\]|\[a-zA-Z0-9\]|\[A-Z0-9\]|\[A-Za-z\]|\[a-zA-Z\]|\[A-Z\])(?:\+|\{\d{1,2}(?:,\d{0,2})?\})\$?$/.test(
+    !/^\^?(?:\[0-9\]|\\d|\[A-Za-z0-9\]|\[a-zA-Z0-9\]|\[A-Z0-9\]|\[A-Za-z\]|\[a-zA-Z\]|\[A-Z\])(?:[+*]|\{\d{1,2}(?:,\d{0,2})?\})\$?$/.test(
       pattern,
     )
   )
@@ -139,7 +139,7 @@ export function acceptsPattern(code: string, pattern: string | null): boolean {
   if (letters && !/^[A-Za-z]+$/.test(code)) return false
   if ((uppercase || pattern.startsWith("[A-Z]")) && code !== code.toUpperCase())
     return false
-  if (!quantifier) return /\+\$?$/.test(pattern)
+  if (!quantifier) return /[+*]\$?$/.test(pattern)
   const minimum = Number(quantifier[1])
   const maximum =
     quantifier[2] === undefined
