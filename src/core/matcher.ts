@@ -41,6 +41,23 @@ function registrableLabel(hostname: string): string | null {
   )
 }
 
+const MAIL_SUFFIX = /-(?:e?mails?|mailer|notifications?|notify|news)$/
+
+function brandLabel(hostname: string): string | null {
+  return registrableLabel(hostname)?.replace(MAIL_SUFFIX, "") ?? null
+}
+
+const BRAND_MAIL_DOMAINS: Record<string, string[]> = {
+  "luma-mail.com": ["luma.com", "lu.ma"],
+}
+
+function brandMailDomain(sender: string, hostname: string): boolean {
+  const domain = getDomain(sender, { allowPrivateDomains: true })
+  return (BRAND_MAIL_DOMAINS[domain ?? ""] ?? []).some((site) =>
+    sameWebsite(site, hostname),
+  )
+}
+
 export function sameOrganization(left: string, right: string): boolean {
   const leftLabel = registrableLabel(left)
   const rightLabel = registrableLabel(right)
@@ -57,7 +74,7 @@ function organizationEvidence(
     !sender ||
     !label ||
     label.length < 3 ||
-    registrableLabel(sender) !== label ||
+    brandLabel(sender) !== label ||
     sameWebsite(sender, context.hostname)
   )
     return false
@@ -68,7 +85,7 @@ function organizationEvidence(
         (domain) =>
           sameWebsite(domain, sender) ||
           sameWebsite(domain, context.hostname) ||
-          registrableLabel(domain) === label,
+          brandLabel(domain) === label,
       )
     )
       return false
@@ -80,7 +97,7 @@ function organizationEvidence(
         (domain) =>
           sameWebsite(domain, sender) ||
           sameWebsite(domain, context.hostname) ||
-          registrableLabel(domain) === label,
+          brandLabel(domain) === label,
       )
     )
       return false
@@ -130,7 +147,17 @@ function senderRelation(
       sameWebsite(domain, context.hostname) ||
       sameOrganization(domain, context.hostname),
   )
-  if (organizationEvidence(candidate, context))
+  const sender = senderDomain(candidate.sender)
+  if (sender && brandMailDomain(sender, context.hostname))
+    return candidate.senderAuthentication === "pass" && addressed
+      ? "inferred"
+      : "confirm"
+  const organization = organizationEvidence(candidate, context)
+  if (
+    organization &&
+    sender &&
+    registrableLabel(sender) === registrableLabel(context.hostname)
+  )
     return candidate.senderAuthentication === "pass" && addressed
       ? "inferred"
       : "confirm"
@@ -146,6 +173,7 @@ function senderRelation(
   )
     return "inferred"
   if (
+    organization ||
     intended ||
     candidate.audiences?.some(
       (domain) =>

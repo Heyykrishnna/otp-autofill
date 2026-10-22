@@ -30,10 +30,14 @@ function assignInputValue(input: HTMLInputElement, value: string): boolean {
   return true
 }
 
-export function fillSplitOtpGroup(
+export function nextTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+export async function fillSplitOtpGroup(
   inputs: HTMLInputElement[],
   code: string,
-): boolean {
+): Promise<boolean> {
   const characters = normalizeOtpCode(code).split("")
   if (inputs.length !== characters.length) {
     return false
@@ -57,6 +61,7 @@ export function fillSplitOtpGroup(
     }
     input.focus({ preventScroll: true })
     assignInputValue(input, char)
+    await nextTask()
   }
 
   const last = inputs[inputs.length - 1]
@@ -80,7 +85,10 @@ export function fillSingleOrControllerOtp(
   return true
 }
 
-export function executeOtpFill(group: DetectedGroup, code: string): boolean {
+export async function executeOtpFill(
+  group: DetectedGroup,
+  code: string,
+): Promise<boolean> {
   if (group.mode === "split") {
     return fillSplitOtpGroup(group.inputs, code)
   }

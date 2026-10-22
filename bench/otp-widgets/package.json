@@ -1,0 +1,32 @@
+{
+  "name": "otp-widget-bench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node run.mjs"
+  },
+  "devDependencies": {
+    "@ark-ui/react": "5.39.3",
+    "@chakra-ui/react": "3.37.0",
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@mantine/core": "9.7.3",
+    "@mantine/hooks": "9.7.3",
+    "@mui/material": "9.5.0",
+    "@primereact/core": "11.2.1",
+    "@radix-ui/react-one-time-password-field": "0.2.1",
+    "antd": "6.6.7",
+    "esbuild": "0.28.2",
+    "input-otp": "1.5.0",
+    "mui-one-time-password-input": "7.0.0",
+    "playwright": "1.64.1",
+    "primereact": "11.2.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-otp-input": "3.1.1",
+    "react-verification-input": "4.2.2",
+    "react18-input-otp": "1.1.4",
+    "vue": "3.5.44",
+    "vue3-otp-input": "0.5.40"
+  }
+}

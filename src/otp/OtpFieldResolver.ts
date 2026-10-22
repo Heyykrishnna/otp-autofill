@@ -1,7 +1,7 @@
 import { findPotentialOtpInputs } from "./OtpFieldDetector"
 import { detectOtpGroups, type DetectedGroup } from "./OtpGroupDetector"
 import { validateOtpFormat } from "./OtpFormatValidator"
-import { executeOtpFill } from "./OtpFillStrategy"
+import { executeOtpFill, nextTask } from "./OtpFillStrategy"
 import { verifyOtpFill, type FillVerificationResult } from "./OtpFillVerifier"
 
 export type { DetectedGroup }
@@ -43,10 +43,10 @@ export function resolveOtpGroup(
   return null
 }
 
-export function fillResolvedOtp(
+export async function fillResolvedOtp(
   group: DetectedGroup,
   code: string,
-): FillVerificationResult {
+): Promise<FillVerificationResult> {
   const validated = validateOtpFormat(code, {
     length: group.expectedLength,
     numeric: group.numeric,
@@ -60,7 +60,7 @@ export function fillResolvedOtp(
     }
   }
 
-  const executed = executeOtpFill(group, validated)
+  const executed = await executeOtpFill(group, validated)
   if (!executed) {
     return {
       accepted: false,
@@ -69,5 +69,6 @@ export function fillResolvedOtp(
     }
   }
 
+  await nextTask()
   return verifyOtpFill(group, validated)
 }

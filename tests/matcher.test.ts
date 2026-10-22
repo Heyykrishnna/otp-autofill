@@ -194,3 +194,80 @@ describe("external input validation", () => {
     expect(siteOrigin("javascript:alert(1)")).toBeNull()
   })
 })
+
+describe("brand mail domains", () => {
+  const luma: VerificationContext = { ...context, hostname: "luma.com" }
+  const candidate = (sender: string, subject = "Your Luma sign in code") => ({
+    id: sender,
+    messageId: sender,
+    code: "482193",
+    sender,
+    subject,
+    receivedAt: now,
+    confidence: 1,
+    senderAuthentication: "pass" as const,
+  })
+
+  it("autofills when the brand sends from a <brand>-mail domain", () => {
+    expect(
+      matchCandidates([candidate("Luma <hello@luma-mail.com>")], luma, now)
+        .kind,
+    ).toBe("unique")
+    expect(
+      matchCandidates(
+        [candidate("Luma <hello@calendar.luma-mail.com>")],
+        luma,
+        now,
+      ).kind,
+    ).toBe("unique")
+  })
+
+  it("asks first for an unlisted <brand>-mail domain, even with passing DMARC", () => {
+    for (const sender of [
+      "Luma <code@luma-mail.net>",
+      "Luma <code@luma-notifications.com>",
+    ])
+      expect(matchCandidates([candidate(sender)], luma, now).kind).toBe(
+        "ambiguous",
+      )
+  })
+
+  it("autofills an unlisted <brand>-mail domain only when the email names the exact site", () => {
+    expect(
+      matchCandidates(
+        [
+          {
+            ...candidate("Luma <code@luma-notifications.com>"),
+            verificationDomains: ["luma.com"],
+          },
+        ],
+        luma,
+        now,
+      ).kind,
+    ).toBe("unique")
+  })
+
+  it("does not treat other hyphenated domains as the brand", () => {
+    for (const sender of [
+      "Luma <hello@luma-payments.com>",
+      "Luma <hello@notluma-mail.com>",
+      "Luma <hello@mail-luma.com>",
+    ])
+      expect(matchCandidates([candidate(sender)], luma, now).kind).toBe("none")
+  })
+
+  it("asks first when the mail domain fails authentication", () => {
+    expect(
+      matchCandidates(
+        [
+          {
+            ...candidate("Luma <hello@luma-mail.com>"),
+            senderAuthentication: "unknown" as const,
+          },
+        ],
+        luma,
+        now,
+      ).kind,
+    ).toBe("ambiguous")
+  })
+})
