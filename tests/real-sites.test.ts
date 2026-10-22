@@ -100,7 +100,7 @@ function MlhCode({ onCode }: { onCode: (code: string) => void }) {
 }
 
 describe("real-site OTP widgets", () => {
-  it("fills Luma's hidden input behind six visual slots", () => {
+  it("fills Luma's hidden input behind six visual slots", async () => {
     const codes: string[] = []
     mount(
       h("div", null, [
@@ -110,13 +110,13 @@ describe("real-site OTP widgets", () => {
     )
     const targets = detectTargets()
     expect(targets.map((target) => target.group?.mode)).toEqual(["controller"])
-    act(() => {
-      expect(fillTarget(targets[0]!, "482193")).toBe(true)
+    await act(async () => {
+      expect(await fillTarget(targets[0]!, "482193")).toBe(true)
     })
     expect(codes).toEqual(["482193"])
   })
 
-  it("fills MLH's six uncontrolled boxes in order", () => {
+  it("fills MLH's six uncontrolled boxes in order", async () => {
     let code = ""
     mount(
       h("div", null, [
@@ -130,8 +130,8 @@ describe("real-site OTP widgets", () => {
     )
     const targets = detectTargets()
     expect(targets.map((target) => target.inputs.length)).toEqual([6])
-    act(() => {
-      expect(fillTarget(targets[0]!, "482193")).toBe(true)
+    await act(async () => {
+      expect(await fillTarget(targets[0]!, "482193")).toBe(true)
     })
     expect(code).toBe("482193")
   })
