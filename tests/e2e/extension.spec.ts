@@ -320,7 +320,12 @@ test("Find and fill reinjects a missing controller on an approved open page", as
 }) => {
   await inbox(extension.worker, { codes: ["482193"] })
   await extension.worker.evaluate(async () => {
-    await chrome.scripting.unregisterContentScripts({ ids: ["fixture-grant"] })
+    await chrome.scripting.unregisterContentScripts()
+    const scope = globalThis as typeof globalThis & {
+      executeScript?: typeof chrome.scripting.executeScript
+    }
+    scope.executeScript = chrome.scripting.executeScript
+    chrome.scripting.executeScript = async () => []
   })
   const page = await extension.context.newPage()
   await page.goto("https://login.example.com/")
@@ -330,6 +335,14 @@ test("Find and fill reinjects a missing controller on an approved open page", as
   await popup.goto(`chrome-extension://${extension.id}/popup.html`)
   await page.bringToFront()
   await popup.reload()
+  await expect(page.getByLabel("Email verification code")).toHaveValue("")
+  await extension.worker.evaluate(() => {
+    const scope = globalThis as typeof globalThis & {
+      executeScript?: typeof chrome.scripting.executeScript
+    }
+    if (scope.executeScript)
+      chrome.scripting.executeScript = scope.executeScript
+  })
   await popup.getByRole("button", { name: /Find & fill OTP/ }).click()
 
   await expect(page.getByLabel("Email verification code")).toHaveValue(
