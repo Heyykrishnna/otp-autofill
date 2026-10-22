@@ -20,12 +20,12 @@ beforeEach(() => {
 })
 
 describe("OtpFormatValidator", () => {
-  it("normalizes spaced and dashed codes while preserving case", () => {
+  it("normalizes spaced and dashed codes while preserving case", async () => {
     expect(normalizeOtpCode(" 050 151 ")).toBe("050151")
     expect(normalizeOtpCode("aB3-9Zq")).toBe("aB39Zq")
   })
 
-  it("validates code constraints", () => {
+  it("validates code constraints", async () => {
     expect(
       validateOtpFormat("482 193", { length: 6, numeric: true, pattern: null }),
     ).toBe("482193")
@@ -49,7 +49,7 @@ describe("OtpFormatValidator", () => {
 })
 
 describe("OtpFieldResolver - Case A: Single input", () => {
-  it("resolves and fills a single one-time code field", () => {
+  it("resolves and fills a single one-time code field", async () => {
     document.body.innerHTML = `
       <form>
         <label for="otp">One-time code</label>
@@ -63,7 +63,7 @@ describe("OtpFieldResolver - Case A: Single input", () => {
     expect(group.inputs).toHaveLength(1)
     expect(group.expectedLength).toBe(6)
 
-    const result = fillResolvedOtp(group, "482193")
+    const result = await fillResolvedOtp(group, "482193")
     expect(result.accepted).toBe(true)
     expect(result.filledValue).toBe("482193")
     expect(group.inputs[0]?.value).toBe("482193")
@@ -71,7 +71,7 @@ describe("OtpFieldResolver - Case A: Single input", () => {
 })
 
 describe("OtpFieldResolver - Case B: Split multi-box inputs", () => {
-  it("resolves and distributes digits across six separate boxes in order", () => {
+  it("resolves and distributes digits across six separate boxes in order", async () => {
     document.body.innerHTML = `
       <div class="auth-container">
         <h2>Enter the 6-digit code</h2>
@@ -94,13 +94,13 @@ describe("OtpFieldResolver - Case B: Split multi-box inputs", () => {
       group.inputs.map((input) => input.getAttribute("data-slot")),
     ).toEqual(["0", "1", "2", "3", "4", "5"])
 
-    const result = fillResolvedOtp(group, "050151")
+    const result = await fillResolvedOtp(group, "050151")
     expect(result.accepted).toBe(true)
     expect(result.filledValue).toBe("050151")
     expect(group.inputs.map((input) => input.value).join("")).toBe("050151")
   })
 
-  it("supports four-box and eight-box split configurations", () => {
+  it("supports four-box and eight-box split configurations", async () => {
     document.body.innerHTML = `
       <form aria-label="Verification form">
         <fieldset class="pin-inputs">
@@ -112,11 +112,11 @@ describe("OtpFieldResolver - Case B: Split multi-box inputs", () => {
     expect(group4).not.toBeNull()
     if (!group4) throw new Error("Expected 4-box group")
     expect(group4.expectedLength).toBe(4)
-    expect(fillResolvedOtp(group4, "9182").accepted).toBe(true)
+    expect((await fillResolvedOtp(group4, "9182")).accepted).toBe(true)
     expect(group4.inputs.map((i) => i.value).join("")).toBe("9182")
   })
 
-  it("preserves alphanumeric case across split boxes", () => {
+  it("preserves alphanumeric case across split boxes", async () => {
     document.body.innerHTML = `
       <div class="login-challenge">
         <h3>Security Code</h3>
@@ -128,14 +128,14 @@ describe("OtpFieldResolver - Case B: Split multi-box inputs", () => {
     const group = resolveOtpGroup()
     expect(group).not.toBeNull()
     if (!group) throw new Error("Expected group")
-    const result = fillResolvedOtp(group, "kH7mQ2")
+    const result = await fillResolvedOtp(group, "kH7mQ2")
     expect(result.accepted).toBe(true)
     expect(group.inputs.map((i) => i.value).join("")).toBe("kH7mQ2")
   })
 })
 
 describe("OtpFieldResolver - Case C: Logical input with visual boxes (controller mode)", () => {
-  it("resolves and fills a concealed input that backs visual slot presentation elements", () => {
+  it("resolves and fills a concealed input that backs visual slot presentation elements", async () => {
     document.body.innerHTML = `
       <div class="otp-component">
         <label>Enter verification code</label>
@@ -156,13 +156,13 @@ describe("OtpFieldResolver - Case C: Logical input with visual boxes (controller
     expect(group.mode).toBe("controller")
     expect(group.expectedLength).toBe(6)
 
-    const result = fillResolvedOtp(group, "050151")
+    const result = await fillResolvedOtp(group, "050151")
     expect(result.accepted).toBe(true)
     expect(result.filledValue).toBe("050151")
     expect(group.inputs[0]?.value).toBe("050151")
   })
 
-  it("resolves a Luma-style visual code widget without maxlength", () => {
+  it("resolves a Luma-style visual code widget without maxlength", async () => {
     document.body.innerHTML = `
       <main>
         <h3>Enter Code</h3>
@@ -181,14 +181,14 @@ describe("OtpFieldResolver - Case C: Logical input with visual boxes (controller
     expect(group.expectedLength).toBe(6)
     expect(group.numeric).toBe(true)
 
-    const result = fillResolvedOtp(group, "314159")
+    const result = await fillResolvedOtp(group, "314159")
     expect(result.accepted).toBe(true)
     expect(result.filledValue).toBe("314159")
   })
 })
 
 describe("OtpFieldResolver - Robustness and Edge Cases", () => {
-  it("refuses to overwrite partially entered user digits", () => {
+  it("refuses to overwrite partially entered user digits", async () => {
     document.body.innerHTML = `
       <div class="otp-group">
         <input data-slot="0" value="5" maxlength="1" />
@@ -202,12 +202,12 @@ describe("OtpFieldResolver - Robustness and Edge Cases", () => {
     const group = resolveOtpGroup()
     expect(group).not.toBeNull()
     if (!group) throw new Error("Expected group")
-    const result = fillResolvedOtp(group, "050151")
+    const result = await fillResolvedOtp(group, "050151")
     expect(result.accepted).toBe(false)
     expect(result.reason).toContain("failed")
   })
 
-  it("refuses to partially fill when one box in a group is disabled or read-only", () => {
+  it("refuses to partially fill when one box in a group is disabled or read-only", async () => {
     document.body.innerHTML = `
       <div class="otp-group">
         <input data-slot="0" maxlength="1" />
@@ -220,11 +220,11 @@ describe("OtpFieldResolver - Robustness and Edge Cases", () => {
     `
     const group = resolveOtpGroup()
     if (group) {
-      expect(fillResolvedOtp(group, "050151").accepted).toBe(false)
+      expect((await fillResolvedOtp(group, "050151")).accepted).toBe(false)
     }
   })
 
-  it("handles multiple OTP groups by focusing on the active element or empty group", () => {
+  it("handles multiple OTP groups by focusing on the active element or empty group", async () => {
     document.body.innerHTML = `
       <form id="form1">
         <input id="otp1" autocomplete="one-time-code" maxlength="6" value="123456" />
@@ -241,7 +241,7 @@ describe("OtpFieldResolver - Robustness and Edge Cases", () => {
     expect(resolved?.inputs[0]?.id).toBe("otp2")
   })
 
-  it("verifies fill failure if host page marks input invalid", () => {
+  it("verifies fill failure if host page marks input invalid", async () => {
     document.body.innerHTML = `
       <input id="otp" autocomplete="one-time-code" maxlength="6" />
     `
@@ -251,8 +251,96 @@ describe("OtpFieldResolver - Robustness and Edge Cases", () => {
     input?.addEventListener("change", () => {
       input.setAttribute("aria-invalid", "true")
     })
-    const result = fillResolvedOtp(group, "123456")
+    const result = await fillResolvedOtp(group, "123456")
     expect(result.accepted).toBe(false)
     expect(result.reason).toContain("invalid")
+  })
+})
+
+describe("generalized detection", () => {
+  function layout(inputs: HTMLInputElement[], width = 44, gap = 8) {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const index = inputs.indexOf(this as HTMLInputElement)
+        if (index === -1) return new DOMRect(0, 0, 0, 0)
+        return new DOMRect(index * (width + gap), 100, width, 44)
+      },
+    )
+  }
+
+  it("groups a row of plain equal boxes when the page asks for a code", () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>Verify your email</h1>
+        <p>Enter the 6-digit code we sent you</p>
+        <form><div>${"<input type='text'>".repeat(6)}</div></form>
+      </main>`
+    const inputs = [...document.querySelectorAll("input")]
+    layout(inputs)
+    const groups = resolveAllOtpGroups()
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.mode).toBe("split")
+    expect(groups[0]?.inputs).toEqual(inputs)
+  })
+
+  it("ignores a row of wide fields even on a code page", () => {
+    document.body.innerHTML = `
+      <main>
+        <p>Enter the 6-digit code we sent you</p>
+        <form><div>${"<input type='text'>".repeat(4)}</div></form>
+      </main>`
+    layout([...document.querySelectorAll("input")], 240)
+    expect(
+      resolveAllOtpGroups().filter((group) => group.mode === "split"),
+    ).toHaveLength(0)
+  })
+
+  it("finds the code prompt a few levels above the form", () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>Check your inbox</h1>
+        <p>Enter the 6-digit code we sent you</p>
+        <div><form><label for="c">Code</label><input id="c" name="code"></form></div>
+      </main>`
+    expect(resolveAllOtpGroups().map((group) => group.mode)).toEqual(["single"])
+  })
+
+  it("does not read code prompts from the whole page body", () => {
+    document.body.innerHTML = `
+      <p>Enter the 6-digit code we sent you</p>
+      <footer><input placeholder="you@example.com"></footer>`
+    expect(resolveAllOtpGroups()).toHaveLength(0)
+  })
+
+  it("keeps boxes together when only some carry maxlength=1", () => {
+    document.body.innerHTML = `
+      <main>
+        <p>Enter the 6-digit code we sent you</p>
+        <div class="otp">
+          ${"<input type='tel'>".repeat(5)}<input type="tel" maxlength="1">
+        </div>
+      </main>`
+    expect(resolveAllOtpGroups().map((group) => group.inputs.length)).toEqual([
+      6,
+    ])
+  })
+
+  it("yields to the page between boxes", async () => {
+    document.body.innerHTML = `
+      <div aria-label="Verification code">
+        ${"<input maxlength='1' inputmode='numeric'>".repeat(6)}
+      </div>`
+    const group = resolveOtpGroup()
+    expect(group?.mode).toBe("split")
+    const seen: string[] = []
+    group?.inputs.forEach((input) =>
+      input.addEventListener("input", () =>
+        setTimeout(() =>
+          seen.push(group.inputs.map((item) => item.value).join("")),
+        ),
+      ),
+    )
+    expect((await fillResolvedOtp(group!, "482193")).accepted).toBe(true)
+    expect(seen[0]).toBe("4")
   })
 })

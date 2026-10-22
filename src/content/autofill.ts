@@ -2,7 +2,10 @@ import type { OtpTarget } from "./detector"
 import { fillResolvedOtp } from "../otp/OtpFieldResolver"
 import type { DetectedGroup } from "../otp/OtpGroupDetector"
 
-export function fillTarget(target: OtpTarget, code: string): boolean {
+export async function fillTarget(
+  target: OtpTarget,
+  code: string,
+): Promise<boolean> {
   const first = target.inputs[0]
   if (!first) return false
   const container = (first.closest(
@@ -18,6 +21,6 @@ export function fillTarget(target: OtpTarget, code: string): boolean {
     numeric: target.constraints.numeric,
     pattern: target.constraints.pattern,
   }
-  const result = fillResolvedOtp(group, code)
+  const result = await fillResolvedOtp(group, code)
   return result.accepted
 }

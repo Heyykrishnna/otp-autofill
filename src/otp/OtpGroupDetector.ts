@@ -3,6 +3,7 @@ import {
   CONTAINER_SIGNAL,
   EXCLUDED_SIGNAL,
   isConcealedOtpController,
+  isEligibleInput,
   OTP_SIGNAL,
 } from "./OtpFieldDetector"
 
@@ -108,13 +109,20 @@ export function containerSignalsOtp(container: HTMLElement): boolean {
   return OTP_SIGNAL.test(text)
 }
 
+function eligibleInputsIn(element: HTMLElement): HTMLInputElement[] {
+  return [...element.querySelectorAll("input")].filter(isEligibleInput)
+}
+
 export function contextualSignalsOtp(container: HTMLElement): boolean {
-  if (containerSignalsOtp(container)) return true
-  const ancestor =
-    container.closest(
-      "form, [role='dialog'], [role='main'], main, section, article, [class*='card'], [class*='modal'], [class*='auth'], [class*='login']",
-    ) ?? container.parentElement
-  return Boolean(ancestor && containerSignalsOtp(ancestor as HTMLElement))
+  const own = new Set(eligibleInputsIn(container))
+  let current: HTMLElement | null = container
+  for (let level = 0; current && level < 5; level++) {
+    if (current === current.ownerDocument.body) return false
+    if (eligibleInputsIn(current).some((input) => !own.has(input))) return false
+    if (containerSignalsOtp(current)) return true
+    current = current.parentElement
+  }
+  return false
 }
 
 export function findContainerForInputs(
@@ -168,11 +176,84 @@ function isNumericInput(input: HTMLInputElement): boolean {
   )
 }
 
+function commonAncestor(inputs: HTMLInputElement[]): HTMLElement {
+  let current = inputs[0]?.parentElement ?? null
+  while (current && !inputs.every((input) => current?.contains(input)))
+    current = current.parentElement
+  return current ?? (inputs[0]?.ownerDocument.body as HTMLElement)
+}
+
+export function detectBoxRows(
+  inputs: HTMLInputElement[],
+): HTMLInputElement[][] {
+  const boxes = inputs.flatMap((input) => {
+    const rect = input.getBoundingClientRect()
+    return rect.width > 0 && rect.height > 0 && rect.width <= rect.height * 4
+      ? [{ input, rect }]
+      : []
+  })
+  const rows: (typeof boxes)[] = []
+  for (const box of boxes) {
+    const row = rows.find((candidate) => {
+      const first = candidate[0]!.rect
+      return (
+        Math.abs(first.top - box.rect.top) <= 4 &&
+        Math.abs(first.width - box.rect.width) <= 2 &&
+        Math.abs(first.height - box.rect.height) <= 2
+      )
+    })
+    if (row) row.push(box)
+    else rows.push([box])
+  }
+  return rows.flatMap((row) => {
+    row.sort((left, right) => left.rect.left - right.rect.left)
+    const runs: (typeof boxes)[] = []
+    for (const box of row) {
+      const run = runs.at(-1)
+      const previous = run?.at(-1)?.rect
+      const gap = previous ? box.rect.left - previous.right : -1
+      if (run && previous && gap >= 0 && gap <= previous.width * 1.5 + 8)
+        run.push(box)
+      else runs.push([box])
+    }
+    return runs
+      .filter((run) => run.length >= 4 && run.length <= 12)
+      .map((run) => run.map((box) => box.input))
+  })
+}
+
 export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
   const groups: DetectedGroup[] = []
   const used = new Set<HTMLInputElement>()
 
-  for (const input of inputs) {
+  for (const row of detectBoxRows(inputs)) {
+    const container = commonAncestor(row)
+    if (row.some((item) => EXCLUDED_SIGNAL.test(accessibleInputText(item))))
+      continue
+    const signalled =
+      row.some(
+        (item) =>
+          OTP_SIGNAL.test(accessibleInputText(item)) ||
+          item.autocomplete === "one-time-code" ||
+          isBoxCandidate(item),
+      ) || contextualSignalsOtp(container)
+    if (!signalled) continue
+    row.forEach((item) => used.add(item))
+    groups.push({
+      inputs: row,
+      mode: "split",
+      container,
+      expectedLength: row.length,
+      numeric: row.every(isNumericInput),
+      pattern: null,
+    })
+  }
+
+  const ordered = [
+    ...inputs.filter(isBoxCandidate),
+    ...inputs.filter((input) => !isBoxCandidate(input)),
+  ]
+  for (const input of ordered) {
     if (used.has(input)) continue
     const ownText = accessibleInputText(input)
     if (EXCLUDED_SIGNAL.test(ownText)) continue
@@ -209,6 +290,7 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
         ? indexedInputs.map((item) => item.input)
         : inputs.filter(
             (item) =>
+              !used.has(item) &&
               groupContainer.contains(item) &&
               (isBoxCandidate(item) || contextualSignalsOtp(groupContainer)) &&
               !EXCLUDED_SIGNAL.test(accessibleInputText(item)),
@@ -321,5 +403,12 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
     }
   }
 
-  return groups
+  return groups.sort((left, right) =>
+    left.inputs[0] &&
+    right.inputs[0] &&
+    left.inputs[0].compareDocumentPosition(right.inputs[0]) &
+      Node.DOCUMENT_POSITION_PRECEDING
+      ? 1
+      : -1,
+  )
 }

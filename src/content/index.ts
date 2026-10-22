@@ -109,7 +109,10 @@ function startController(): void {
       !target
     )
       return false
-    const result = fillTarget(target, code)
+    busy = true
+    const result = await fillTarget(target, code).finally(() => {
+      busy = false
+    })
     if (result) {
       filled = true
       clearTimeout(timer)
