@@ -222,6 +222,31 @@ describe("brand mail domains", () => {
     ).toBe("unique")
   })
 
+  it("asks first for an unlisted <brand>-mail domain, even with passing DMARC", () => {
+    for (const sender of [
+      "Luma <code@luma-mail.net>",
+      "Luma <code@luma-notifications.com>",
+    ])
+      expect(matchCandidates([candidate(sender)], luma, now).kind).toBe(
+        "ambiguous",
+      )
+  })
+
+  it("autofills an unlisted <brand>-mail domain only when the email names the exact site", () => {
+    expect(
+      matchCandidates(
+        [
+          {
+            ...candidate("Luma <code@luma-notifications.com>"),
+            verificationDomains: ["luma.com"],
+          },
+        ],
+        luma,
+        now,
+      ).kind,
+    ).toBe("unique")
+  })
+
   it("does not treat other hyphenated domains as the brand", () => {
     for (const sender of [
       "Luma <hello@luma-payments.com>",
