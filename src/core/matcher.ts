@@ -41,6 +41,12 @@ function registrableLabel(hostname: string): string | null {
   )
 }
 
+const MAIL_SUFFIX = /-(?:e?mails?|mailer|notifications?|notify|news)$/
+
+function brandLabel(hostname: string): string | null {
+  return registrableLabel(hostname)?.replace(MAIL_SUFFIX, "") ?? null
+}
+
 export function sameOrganization(left: string, right: string): boolean {
   const leftLabel = registrableLabel(left)
   const rightLabel = registrableLabel(right)
@@ -57,7 +63,7 @@ function organizationEvidence(
     !sender ||
     !label ||
     label.length < 3 ||
-    registrableLabel(sender) !== label ||
+    brandLabel(sender) !== label ||
     sameWebsite(sender, context.hostname)
   )
     return false
@@ -68,7 +74,7 @@ function organizationEvidence(
         (domain) =>
           sameWebsite(domain, sender) ||
           sameWebsite(domain, context.hostname) ||
-          registrableLabel(domain) === label,
+          brandLabel(domain) === label,
       )
     )
       return false
@@ -80,7 +86,7 @@ function organizationEvidence(
         (domain) =>
           sameWebsite(domain, sender) ||
           sameWebsite(domain, context.hostname) ||
-          registrableLabel(domain) === label,
+          brandLabel(domain) === label,
       )
     )
       return false
