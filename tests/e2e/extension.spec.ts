@@ -282,6 +282,51 @@ test("fills MLH-style indexed fields from an authenticated sibling domain", asyn
   )
 })
 
+test("keeps filling after a single-page app changes the URL", async ({
+  extension,
+}) => {
+  await inbox(extension.worker, {
+    codes: ["289217"],
+    sender: "Major League Hacking <notifications@mlh.io>",
+    subject: "Verify Your Identity | Major League Hacking",
+    body: "Here's your one-time code to sign into your account: 289217. Sign in using https://transactional.mlh.io/sign-in",
+    authenticated: true,
+    authenticationDomain: "mlh.io",
+    delay: 2_000,
+  })
+  const page = await extension.context.newPage()
+  await page.goto(
+    "https://www.mlh.com/?scenario=indexed&recipient=test@example.com",
+  )
+  await page.evaluate(() => history.pushState({}, "", "/signin/request/otp"))
+  await expect(page.getByLabel("React state")).toHaveText(
+    "React state: 289217",
+    { timeout: 30_000 },
+  )
+})
+
+test("reads the recipient when the next element touches the email address", async ({
+  extension,
+}) => {
+  await extension.context.route("https://luma.com/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><main><h3>Enter Code</h3><div><span>Please enter the 6 digit code we sent to <span>test@example.com</span>.</span></div><input autocomplete="one-time-code" inputmode="numeric" aria-label="Verification code" maxlength="6"><button type="button"><div>Paste Code</div></button></main>`,
+    }),
+  )
+  await inbox(extension.worker, {
+    codes: ["950390"],
+    sender: "Luma <support@luma.com>",
+    subject: "950390 is your Luma sign-in code",
+    body: "950390 is your Luma sign-in code.",
+  })
+  const page = await extension.context.newPage()
+  await page.goto("https://luma.com/signin")
+  await expect(page.getByLabel("Verification code")).toHaveValue("950390", {
+    timeout: 20_000,
+  })
+})
+
 test("fills a Luma-style visual-slot widget from a code-before-phrase email", async ({
   extension,
 }) => {

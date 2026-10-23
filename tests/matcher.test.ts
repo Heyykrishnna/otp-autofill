@@ -271,3 +271,48 @@ describe("brand mail domains", () => {
     ).toBe("ambiguous")
   })
 })
+
+describe("field bounds and arrival window", () => {
+  const early = (offset: number) =>
+    extractCandidates(
+      email("Verification code: 482193", {
+        receivedAt: context.startedAt - offset,
+      }),
+    )
+
+  it("accepts an email that arrived inside the lookback window", () => {
+    expect(matchCandidates(early(40_000), context, now).kind).toBe("none")
+    expect(
+      matchCandidates(early(40_000), { ...context, lookbackMs: 60_000 }, now)
+        .kind,
+    ).toBe("unique")
+  })
+  it("keeps resends strict even with a lookback window", () => {
+    expect(
+      matchCandidates(
+        early(5_000),
+        { ...context, lookbackMs: 60_000, strictAfter: true },
+        now,
+      ).kind,
+    ).toBe("none")
+  })
+  it("treats a single field's maxlength as an upper bound", () => {
+    const bounded = (maxLength: number): VerificationContext => ({
+      ...context,
+      constraints: { length: null, numeric: true, pattern: null, maxLength },
+    })
+    const code = extractCandidates(email("Verification code: 482193"))
+    expect(matchCandidates(code, bounded(10), now).kind).toBe("unique")
+    expect(matchCandidates(code, bounded(4), now).kind).toBe("none")
+  })
+  it("validates the lookback window and field bound", () => {
+    expect(isContext({ ...context, lookbackMs: 120_000 })).toBe(true)
+    expect(isContext({ ...context, lookbackMs: 600_000 })).toBe(false)
+    expect(
+      isContext({
+        ...context,
+        constraints: { ...context.constraints, maxLength: 40 },
+      }),
+    ).toBe(false)
+  })
+})

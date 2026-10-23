@@ -29,6 +29,7 @@ function startController(): void {
   let filled = false
   let permissionPaused = false
   let strictAfter = false
+  let manualLookup = false
   let requestedAt: number | undefined
   let enterTimer: ReturnType<typeof setTimeout> | undefined
   const submittedForms = new WeakSet<HTMLFormElement>()
@@ -62,6 +63,7 @@ function startController(): void {
 
   function reset(resend = false): void {
     strictAfter = resend
+    manualLookup = false
     requestedAt = resend ? Date.now() : undefined
     if (context) finish("cancelled")
     context = null
@@ -242,6 +244,9 @@ function startController(): void {
       constraints: target.constraints,
       ...verificationHints(target),
       strictAfter,
+      // Reloads and slow pages can show the form after the email arrived, and
+      // "Find & fill" is pressed once it has.
+      lookbackMs: manualLookup ? 120_000 : 60_000,
     }
     void send({ type: "REGISTER", context }).then(() => poll())
   }
@@ -259,6 +264,7 @@ function startController(): void {
       return true
     } else if (message.type === "RETRY") {
       reset()
+      manualLookup = true
       scan()
       respond({ ok: true })
     } else if (message.type === "STOP") {

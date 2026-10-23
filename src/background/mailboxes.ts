@@ -30,9 +30,16 @@ export class Mailboxes implements MessageSource {
             await updateSettings({ accountEmail: email })
           }
           const client = new GmailClient(undefined, undefined, undefined, email)
-          return (await client.discover(startedAt, localSeen, signal)).map(
-            (message) => ({ ...message, account: email }),
+          const found = await client.discover(
+            startedAt,
+            localSeen,
+            signal,
+            () =>
+              warnings.push(
+                "More recent emails matched than could be checked: confirm the intended email.",
+              ),
           )
+          return found.map((message) => ({ ...message, account: email }))
         },
       })
     if (settings.companionEnabled) {

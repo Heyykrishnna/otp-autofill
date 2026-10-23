@@ -176,6 +176,158 @@ function vanillaBoxes(
   })
 }
 
+const ALNUM = /[^a-z0-9]/gi
+
+function DataBoxes() {
+  const [chars, setChars] = useState<string[]>(() => Array(6).fill(""))
+  const box = (i: number) =>
+    document.querySelectorAll<HTMLInputElement>("input.data-box")[i]
+  const fill = (start: number, text: string) => {
+    const next = [...chars]
+    text.split("").forEach((c, k) => {
+      if (start + k < 6) next[start + k] = c
+    })
+    setChars(next)
+    report(next.join(""))
+    box(Math.min(start + text.length, 5))?.focus()
+  }
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {chars.map((c, i) => (
+        <input
+          key={i}
+          className="data-box"
+          type="text"
+          value={c}
+          style={{ width: 44, height: 44 }}
+          onChange={() => {}}
+          onInput={(e) => {
+            const data = (e.nativeEvent as InputEvent).data
+            if (data) fill(i, data.replace(ALNUM, "").toUpperCase().slice(-1))
+          }}
+          onPaste={(e) => {
+            e.preventDefault()
+            fill(
+              i,
+              e.clipboardData.getData("text").replace(ALNUM, "").toUpperCase(),
+            )
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function RemountBoxes() {
+  const [code, setCode] = useState("")
+  const set = (next: string) => {
+    setCode(next)
+    report(next)
+    setTimeout(() =>
+      document
+        .querySelectorAll<HTMLInputElement>("input.remount-box")
+        [Math.min(next.length, 5)]?.focus(),
+    )
+  }
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {Array.from({ length: 6 }, (_, i) => (
+        <input
+          key={`${i}:${code}`}
+          className="remount-box"
+          type="text"
+          defaultValue={code[i] ?? ""}
+          style={{ width: 44, height: 44 }}
+          onInput={(e) => {
+            const c = e.currentTarget.value.replace(ALNUM, "").slice(-1)
+            if (c) set((code.slice(0, i) + c).toUpperCase().slice(0, 6))
+          }}
+          onPaste={(e) => {
+            e.preventDefault()
+            set(
+              e.clipboardData
+                .getData("text")
+                .replace(ALNUM, "")
+                .toUpperCase()
+                .slice(0, 6),
+            )
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function beforeInputBoxes(root: HTMLElement) {
+  root.style.display = "flex"
+  const boxes = Array.from({ length: 6 }, () => {
+    const input = document.createElement("input")
+    input.type = "text"
+    input.style.width = "40px"
+    root.append(input)
+    return input
+  })
+  const sync = () => report(boxes.map((b) => b.value).join(""))
+  boxes.forEach((box, i) => {
+    box.addEventListener("beforeinput", (e) => {
+      e.preventDefault()
+      const c = (e.data ?? "").replace(ALNUM, "").slice(-1).toUpperCase()
+      if (!c) return
+      box.value = c
+      sync()
+      boxes[i + 1]?.focus()
+    })
+    box.addEventListener("input", () => {
+      box.value = ""
+    })
+    box.addEventListener("paste", (e) => {
+      e.preventDefault()
+      const text = (e.clipboardData?.getData("text") ?? "").replace(ALNUM, "")
+      text
+        .toUpperCase()
+        .split("")
+        .forEach((c, k) => boxes[i + k] && (boxes[i + k]!.value = c))
+      sync()
+    })
+  })
+}
+
+function probeBoxes(
+  root: HTMLElement,
+  opts: { type?: string; text?: string; scaleFirst?: boolean; count?: number },
+) {
+  root.innerHTML = opts.text ?? ""
+  const row = document.createElement("div")
+  row.style.display = "flex"
+  row.style.gap = "10px"
+  root.append(row)
+  const boxes = Array.from({ length: opts.count ?? 6 }, () => {
+    const input = document.createElement("input")
+    input.type = opts.type ?? "text"
+    input.style.cssText = "width:48px;height:48px;text-align:center"
+    row.append(input)
+    return input
+  })
+  if (opts.scaleFirst) boxes[0]!.style.transform = "scale(1.08)"
+  const sync = () => report(boxes.map((b) => b.value).join(""))
+  boxes.forEach((box, i) =>
+    box.addEventListener("input", () => {
+      box.value = box.value.slice(-1)
+      sync()
+      if (box.value) boxes[i + 1]?.focus()
+    }),
+  )
+}
+
+function genericSingle(main: string, attrs: string) {
+  document.querySelector("main")!.innerHTML = main.replace(
+    "{input}",
+    `<input ${attrs}>`,
+  )
+  const input = document.querySelector<HTMLInputElement>("main input")!
+  input.addEventListener("input", () => report(input.value))
+}
+
 const react: Record<string, () => ReactNode> = {
   "input-otp (shadcn)": () => (
     <OTPInput
@@ -273,13 +425,46 @@ const react: Record<string, () => ReactNode> = {
   ),
   "hand-rolled: MLH copy": () => <MlhCode />,
   "hand-rolled: Luma copy": () => <LumaCode />,
+  "alnum: React boxes reading InputEvent.data": () => <DataBoxes />,
+  "alnum: React boxes remounted per character": () => <RemountBoxes />,
 }
 
 const vanilla: Record<string, (root: HTMLElement) => void> = {
+  "general: single field, maxlength longer than code": () =>
+    genericSingle(
+      "<h2>Check your email</h2><p>Enter the code we sent to your email.</p><form>{input}<button>Continue</button></form>",
+      'type="text" name="code" maxlength="10"',
+    ),
+  "general: single field named token, generic text": () =>
+    genericSingle(
+      "<div><div>Check your inbox</div><div>We emailed you a code</div><form>{input}<button>Submit</button></form></div>",
+      'type="text" name="token" placeholder="Enter code"',
+    ),
+  "general: single number field": () =>
+    genericSingle(
+      "<h2>Confirm it is you</h2><p>Type the code from the email.</p><form>{input}<button>Continue</button></form>",
+      'type="number" id="code-input"',
+    ),
+  "general: password-masked boxes": (root) =>
+    probeBoxes(root, { type: "password" }),
+  "general: generic 'enter the code' text in divs": (root) => {
+    document.querySelector("main")!.innerHTML =
+      '<div class="screen"><div class="title">Almost there</div><div class="sub">Enter the code we emailed you</div><div id="slot"></div><button>Verify</button></div>'
+    probeBoxes(document.getElementById("slot")!, {})
+  },
+  "general: focused box scaled up": (root) =>
+    probeBoxes(root, { scaleFirst: true }),
+  "general: 4-box PIN": (root) => probeBoxes(root, { count: 4 }),
+  "alnum: beforeinput-only boxes": beforeInputBoxes,
   "vue3-otp-input": (root) => {
     createApp({
       render: () =>
-        vh(Vue3Otp, { numInputs: 6, inputType: "tel", onOnChange: report }),
+        vh(Vue3Otp, {
+          numInputs: 6,
+          inputType: "tel",
+          onOnChange: report,
+          "onUpdate:value": report,
+        }),
     }).mount(root)
   },
   "hand-rolled: maxlength=1 boxes": (root) =>
@@ -346,6 +531,10 @@ const vanilla: Record<string, (root: HTMLElement) => void> = {
 }
 
 const negatives: Record<string, string> = {
+  "negative: promo code field": `<main><h1>Checkout</h1><p>Have a code?</p><form><input type="text" name="code" placeholder="Enter code"><button>Apply</button></form><p>Promo codes cannot be combined.</p></main>`,
+  "negative: search field": `<main><h1>Docs</h1><form><input type="text" name="q" placeholder="Search code samples"></form></main>`,
+  "negative: ZIP code boxes": `<main><h1>Shipping</h1><p>Enter your ZIP code</p><div style="display:flex;gap:8px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"></div></main>`,
+  "negative: sort code boxes": `<main><h1>Bank details</h1><p>Enter your sort code and account number</p><div style="display:flex;gap:8px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"><input type="text" style="width:44px;height:44px"></div></main>`,
   "negative: email + password login": `<main><h1>Sign in</h1><form><label>Email <input type="text" name="email"></label><label>Password <input type="password" name="password"></label><button>Sign in</button></form></main>`,
   "negative: 4-box card number": `<main><h1>Payment</h1><form><label>Card number</label><div style="display:flex;gap:8px">${Array.from({ length: 4 }, (_, i) => `<input type="text" name="card${i}" maxlength="4" style="width:60px">`).join("")}</div></form></main>`,
   "negative: address row": `<main><h1>Shipping</h1><form><div style="display:flex;gap:8px">${["Street", "City", "State", "Country"].map((l) => `<input type="text" placeholder="${l}" style="width:120px">`).join("")}</div></form></main>`,

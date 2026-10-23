@@ -61,7 +61,8 @@ describe("OtpFieldResolver - Case A: Single input", () => {
     if (!group) throw new Error("Expected group")
     expect(group.mode).toBe("single")
     expect(group.inputs).toHaveLength(1)
-    expect(group.expectedLength).toBe(6)
+    expect(group.expectedLength).toBeNull()
+    expect(group.maxLength).toBe(6)
 
     const result = await fillResolvedOtp(group, "482193")
     expect(result.accepted).toBe(true)

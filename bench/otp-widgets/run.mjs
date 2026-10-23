@@ -3,6 +3,13 @@ import { chromium } from "playwright"
 
 const only = process.argv[2]
 const CODE = "482193"
+const ALNUM_CODE = "K7Q2XM"
+const codeFor = (name) =>
+  name.startsWith("alnum:")
+    ? ALNUM_CODE
+    : name.includes("4-box")
+      ? CODE.slice(0, 4)
+      : CODE
 
 const result = await build({
   entryPoints: [new URL("./widgets.tsx", import.meta.url).pathname],
@@ -49,7 +56,7 @@ for (const name of names) {
     await page.evaluate((widget) => window.mountWidget(widget), name)
     await page.waitForTimeout(400)
     const fill = await Promise.race([
-      page.evaluate((code) => window.runFill(code), CODE),
+      page.evaluate((code) => window.runFill(code), codeFor(name)),
       timeout(4000, { shape: "page froze" }),
     ])
     detected = fill.shape
@@ -63,7 +70,7 @@ for (const name of names) {
   }
   const ok = name.startsWith("negative:")
     ? Array.isArray(detected) && detected.length === 0
-    : value === CODE
+    : value === codeFor(name)
   if (ok) passed++
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name.padEnd(38)} detected=${JSON.stringify(detected)} value=${JSON.stringify(value)}${errors[0] ? `  error=${errors[0].slice(0, 80)}` : ""}`,

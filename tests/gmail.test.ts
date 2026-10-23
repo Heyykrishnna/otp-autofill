@@ -151,6 +151,27 @@ describe("Gmail integration", () => {
       client.discover(Date.now(), new Set(), new AbortController().signal),
     ).rejects.toMatchObject({ kind: "temporary" })
   })
+  it("reads the newest page and reports a cut-short search when asked", async () => {
+    const client = new GmailClient(
+      async () => "test",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          reply({ messages: [{ id: "message1" }], nextPageToken: "more" }),
+        )
+        .mockResolvedValue(reply({ id: "message1", internalDate: "1" })),
+    )
+    const truncated = vi.fn()
+    await expect(
+      client.discover(
+        Date.now(),
+        new Set(),
+        new AbortController().signal,
+        truncated,
+      ),
+    ).resolves.toBeInstanceOf(Array)
+    expect(truncated).toHaveBeenCalledOnce()
+  })
   it("aborts stale work without returning messages", async () => {
     const controller = new AbortController()
     controller.abort()

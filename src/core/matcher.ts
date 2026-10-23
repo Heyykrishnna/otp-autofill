@@ -234,7 +234,8 @@ export function eligibleCandidates(
       age >= -15_000 &&
       age <= MAX_EMAIL_AGE_MS &&
       candidate.receivedAt >=
-        context.startedAt - (context.strictAfter ? 0 : 15_000) &&
+        context.startedAt -
+          (context.strictAfter ? 0 : (context.lookbackMs ?? 15_000)) &&
       (candidate.expiresAt === undefined || candidate.expiresAt > now) &&
       candidate.confidence >= 0.85 &&
       senderRelation(candidate, context) !== null &&
@@ -245,6 +246,8 @@ export function eligibleCandidates(
         context.requestId === candidate.requestId) &&
       (context.constraints.length === null ||
         candidate.code.length === context.constraints.length) &&
+      (!context.constraints.maxLength ||
+        candidate.code.length <= context.constraints.maxLength) &&
       (!context.constraints.numeric || /^\d+$/.test(candidate.code)) &&
       acceptsPattern(candidate.code, context.constraints.pattern)
     )
