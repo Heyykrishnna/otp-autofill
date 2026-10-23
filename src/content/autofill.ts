@@ -8,9 +8,10 @@ export async function fillTarget(
 ): Promise<boolean> {
   const first = target.inputs[0]
   if (!first) return false
-  const container = (first.closest(
-    "form, [role='dialog'], [role='main'], main, section, article, [class*='card']",
-  ) ??
+  const container = (target.group?.container ??
+    first.closest(
+      "form, [role='dialog'], [role='main'], main, section, article, [class*='card']",
+    ) ??
     first.parentElement ??
     first.ownerDocument.body) as HTMLElement
   const group: DetectedGroup = {
@@ -18,6 +19,7 @@ export async function fillTarget(
     mode: target.inputs.length > 1 ? "split" : "single",
     container,
     expectedLength: target.constraints.length,
+    maxLength: target.constraints.maxLength ?? null,
     numeric: target.constraints.numeric,
     pattern: target.constraints.pattern,
   }

@@ -132,8 +132,11 @@ export class GmailClient {
     startedAt: number,
     seen: Set<string>,
     signal: AbortSignal,
+    // Without this, more matches than one page abstains; with it, the newest
+    // page is read and the caller is told the search was cut short.
+    onTruncated?: () => void,
   ): Promise<EmailMessage[]> {
-    const query = `after:${Math.floor((startedAt - 120_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "signing in" "sign-in" "sign in" "login code" "login" "authentication code" "verify your email" "confirm your email" "verification link" "activation link" passcode otp code}`
+    const query = `after:${Math.floor((startedAt - 120_000) / 1_000)} -in:spam -in:trash {"verification code" "security code" "one time" "one-time" "signing in" "sign-in" "sign in" "login code" "login" "authentication code" "verify your email" "confirm your email" "verification link" "activation link" passcode otp code verify verification confirm confirmation pin security 2fa "two-factor" "2-step" magic}`
     const params = new URLSearchParams({
       q: query,
       maxResults: "10",
@@ -145,8 +148,10 @@ export class GmailClient {
       (list.messages !== undefined && !Array.isArray(list.messages))
     )
       throw new GmailError("temporary")
-    if (typeof list.nextPageToken === "string")
-      throw new GmailError("temporary", 10_000)
+    if (typeof list.nextPageToken === "string") {
+      if (!onTruncated) throw new GmailError("temporary", 10_000)
+      onTruncated()
+    }
     const ids = (Array.isArray(list.messages) ? list.messages : [])
       .flatMap((item: unknown) =>
         isRecord(item) &&

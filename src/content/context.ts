@@ -1,5 +1,6 @@
 import { emailAddress, recipientAddresses } from "../core/evidence"
 import type { OtpTarget } from "./detector"
+import { visibleText } from "../otp/OtpFieldDetector"
 
 export function verificationHints(target: OtpTarget): {
   recipient?: string
@@ -36,7 +37,7 @@ export function verificationHints(target: OtpTarget): {
     .flatMap((input) => (emailAddress(input.value) ? [input.value] : []))
 
   const fullText = candidateContainers
-    .map((container) => container.textContent ?? "")
+    .map(visibleText)
     .join(" ")
     .slice(0, 10_000)
 
@@ -54,7 +55,7 @@ export function verificationHints(target: OtpTarget): {
   const fallbackEmail = !textMatch
     ? candidateContainers
         .slice(0, -1)
-        .flatMap((container) => recipientAddresses(container.textContent ?? ""))
+        .flatMap((container) => recipientAddresses(visibleText(container)))
         .find((address) => !/[*•]/.test(address))
     : undefined
 

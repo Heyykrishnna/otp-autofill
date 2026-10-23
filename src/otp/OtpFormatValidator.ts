@@ -16,6 +16,9 @@ export function validateOtpFormat(
   if (constraints.length !== null && normalized.length !== constraints.length) {
     return null
   }
+  if (constraints.maxLength && normalized.length > constraints.maxLength) {
+    return null
+  }
   if (constraints.numeric && !/^\d+$/.test(normalized)) {
     return null
   }

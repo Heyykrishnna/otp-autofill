@@ -49,6 +49,7 @@ export async function fillResolvedOtp(
 ): Promise<FillVerificationResult> {
   const validated = validateOtpFormat(code, {
     length: group.expectedLength,
+    maxLength: group.maxLength ?? null,
     numeric: group.numeric,
     pattern: group.pattern,
   })

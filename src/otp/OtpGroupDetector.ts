@@ -5,6 +5,7 @@ import {
   isConcealedOtpController,
   isEligibleInput,
   OTP_SIGNAL,
+  visibleText,
 } from "./OtpFieldDetector"
 
 export interface BoxIndex {
@@ -17,6 +18,7 @@ export interface DetectedGroup {
   mode: "single" | "split" | "controller"
   container: HTMLElement
   expectedLength: number | null
+  maxLength?: number | null
   numeric: boolean
   pattern: string | null
 }
@@ -183,6 +185,32 @@ function commonAncestor(inputs: HTMLInputElement[]): HTMLElement {
   return current ?? (inputs[0]?.ownerDocument.body as HTMLElement)
 }
 
+const FIELD_NAME_SIGNAL = /\b(?:code|otp|token|pin|passcode)\b/i
+const WEAK_OTP_TEXT = /\b(?:code|otp|pin|passcode|verif\w*)\b/i
+const WEAK_EXCLUDED_TEXT =
+  /\b(?:sort[ -]?code|routing|iban|swift|bank|account[ -]?number|date of birth|birthday)\b/i
+
+// Nearby text that only says "code" is enough for a row of equal boxes, which
+// almost nothing but a one-time code uses.
+export function nearbyTextSignalsOtp(container: HTMLElement): boolean {
+  const own = new Set(eligibleInputsIn(container))
+  let current: HTMLElement | null = container
+  for (let level = 0; current && level < 5; level++) {
+    if (current === current.ownerDocument.body) return false
+    if (eligibleInputsIn(current).some((input) => !own.has(input))) return false
+    const text = visibleText(current).slice(0, 2000)
+    if (EXCLUDED_SIGNAL.test(text) || WEAK_EXCLUDED_TEXT.test(text))
+      return false
+    if (WEAK_OTP_TEXT.test(text)) return true
+    current = current.parentElement
+  }
+  return false
+}
+
+function similar(left: number, right: number): boolean {
+  return Math.abs(left - right) <= Math.max(2, Math.max(left, right) * 0.15)
+}
+
 export function detectBoxRows(
   inputs: HTMLInputElement[],
 ): HTMLInputElement[][] {
@@ -195,11 +223,15 @@ export function detectBoxRows(
   const rows: (typeof boxes)[] = []
   for (const box of boxes) {
     const row = rows.find((candidate) => {
+      // Relative tolerances let a focused box that grows or shifts stay in its row.
       const first = candidate[0]!.rect
       return (
-        Math.abs(first.top - box.rect.top) <= 4 &&
-        Math.abs(first.width - box.rect.width) <= 2 &&
-        Math.abs(first.height - box.rect.height) <= 2
+        Math.abs(
+          first.top + first.height / 2 - (box.rect.top + box.rect.height / 2),
+        ) <=
+          first.height * 0.25 &&
+        similar(first.width, box.rect.width) &&
+        similar(first.height, box.rect.height)
       )
     })
     if (row) row.push(box)
@@ -212,7 +244,7 @@ export function detectBoxRows(
       const run = runs.at(-1)
       const previous = run?.at(-1)?.rect
       const gap = previous ? box.rect.left - previous.right : -1
-      if (run && previous && gap >= 0 && gap <= previous.width * 1.5 + 8)
+      if (run && previous && gap >= -4 && gap <= previous.width * 1.5 + 8)
         run.push(box)
       else runs.push([box])
     }
@@ -236,7 +268,9 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
           OTP_SIGNAL.test(accessibleInputText(item)) ||
           item.autocomplete === "one-time-code" ||
           isBoxCandidate(item),
-      ) || contextualSignalsOtp(container)
+      ) ||
+      contextualSignalsOtp(container) ||
+      (row.length <= 8 && nearbyTextSignalsOtp(container))
     if (!signalled) continue
     row.forEach((item) => used.add(item))
     groups.push({
@@ -254,7 +288,7 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
     ...inputs.filter((input) => !isBoxCandidate(input)),
   ]
   for (const input of ordered) {
-    if (used.has(input)) continue
+    if (used.has(input) || input.type === "password") continue
     const ownText = accessibleInputText(input)
     if (EXCLUDED_SIGNAL.test(ownText)) continue
 
@@ -373,7 +407,12 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
     if (
       input.autocomplete === "one-time-code" ||
       OTP_SIGNAL.test(ownText) ||
-      (contextualSignalsOtp(container) && !EXCLUDED_SIGNAL.test(ownText))
+      (contextualSignalsOtp(container) && !EXCLUDED_SIGNAL.test(ownText)) ||
+      // A field named for a code, next to text that mentions one.
+      (FIELD_NAME_SIGNAL.test(ownText) &&
+        !/search/i.test(ownText) &&
+        input.parentElement !== null &&
+        nearbyTextSignalsOtp(input.parentElement))
     ) {
       if (
         input.maxLength > 0 &&
@@ -383,20 +422,22 @@ export function detectOtpGroups(inputs: HTMLInputElement[]): DetectedGroup[] {
       }
       const pattern = input.pattern ? input.pattern.slice(0, 120) : null
       const exactLength = pattern?.match(/\{(\d{1,2})\}\$?$/)?.[1]
+      const boundedLength =
+        input.maxLength >= 4 && input.maxLength <= 12 ? input.maxLength : null
+      const controller = visualSlots >= 4
       const expectedLength = exactLength
         ? Number(exactLength)
-        : input.maxLength >= 4 && input.maxLength <= 12
-          ? input.maxLength
-          : visualSlots >= 4 && visualSlots <= 12
-            ? visualSlots
-            : null
+        : controller
+          ? (boundedLength ?? (visualSlots <= 12 ? visualSlots : null))
+          : null
 
       used.add(input)
       groups.push({
         inputs: [input],
-        mode: visualSlots >= 4 ? "controller" : "single",
+        mode: controller ? "controller" : "single",
         container,
         expectedLength,
+        maxLength: controller ? null : boundedLength,
         numeric: isNumericInput(input),
         pattern,
       })

@@ -7,6 +7,16 @@ export const EXCLUDED_SIGNAL =
 export const CONTAINER_SIGNAL =
   /(?:otp|verification|security|login|sign[ -]?in|auth|passcode|code|pin|digit|2fa|mfa)/i
 
+// textContent glues adjacent elements together ("you@example.com.Paste Code"),
+// so prefer the rendered text, which separates them like the screen does.
+export function visibleText(element: HTMLElement): string {
+  return (
+    (typeof element.innerText === "string" ? element.innerText : null) ??
+    element.textContent ??
+    ""
+  )
+}
+
 export function accessibleInputText(input: HTMLInputElement): string {
   const labels = [...(input.labels ?? [])].map(
     (label) => label.textContent ?? "",
@@ -47,7 +57,9 @@ export function isEligibleInput(input: HTMLInputElement): boolean {
     return false
   }
   const type = input.type.toLowerCase()
-  const validTypes = ["text", "tel", "number"]
+  // Password is allowed so masked code boxes are found; single password fields
+  // are rejected when groups are built.
+  const validTypes = ["text", "tel", "number", "password"]
   if (!validTypes.includes(type)) {
     return false
   }

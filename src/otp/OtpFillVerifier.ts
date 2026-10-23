@@ -1,4 +1,5 @@
 import type { DetectedGroup } from "./OtpGroupDetector"
+import { liveInputs } from "./OtpFillStrategy"
 import { normalizeOtpCode } from "./OtpFormatValidator"
 
 export interface FillVerificationResult {
@@ -12,7 +13,8 @@ export function verifyOtpFill(
   code: string,
 ): FillVerificationResult {
   const cleanCode = normalizeOtpCode(code)
-  if (group.inputs.some((input) => !input.isConnected)) {
+  const inputs = liveInputs(group.inputs, group.container)
+  if (inputs.some((input) => !input.isConnected)) {
     return {
       accepted: false,
       filledValue: "",
@@ -20,7 +22,7 @@ export function verifyOtpFill(
     }
   }
 
-  const values = group.inputs.map((input) => input.value)
+  const values = inputs.map((input) => input.value)
   const filledValue =
     group.mode === "split" ? values.join("") : (values[0] ?? "")
 
@@ -32,7 +34,7 @@ export function verifyOtpFill(
     }
   }
 
-  const hasInvalid = group.inputs.some(
+  const hasInvalid = inputs.some(
     (input) => input.getAttribute("aria-invalid") === "true",
   )
   if (hasInvalid) {

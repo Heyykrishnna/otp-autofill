@@ -19,6 +19,9 @@ export interface FieldConstraints {
   length: number | null
   numeric: boolean
   pattern: string | null
+  // Upper bound from a single field's maxlength, which is often longer than
+  // the code it takes.
+  maxLength?: number | null
 }
 
 export interface VerificationContext {
@@ -29,7 +32,11 @@ export interface VerificationContext {
   recipient?: string
   requestId?: string
   strictAfter?: boolean
+  // How long before startedAt an email may have arrived; defaults to 15 s.
+  lookbackMs?: number
 }
+
+export const MAX_LOOKBACK_MS = 120_000
 
 export interface VerificationLinkContext {
   id: string

@@ -6,6 +6,7 @@ import type {
   VerificationContext,
   VerificationLinkContext,
 } from "./types"
+import { MAX_LOOKBACK_MS } from "./types"
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -89,10 +90,19 @@ export function isContext(value: unknown): value is VerificationContext {
         /^[a-zA-Z0-9_-]{4,80}$/.test(value.requestId))) &&
     (value.strictAfter === undefined ||
       typeof value.strictAfter === "boolean") &&
+    (value.lookbackMs === undefined ||
+      (Number.isInteger(value.lookbackMs) &&
+        Number(value.lookbackMs) >= 0 &&
+        Number(value.lookbackMs) <= MAX_LOOKBACK_MS)) &&
     (field.length === null ||
       (Number.isInteger(field.length) &&
         Number(field.length) >= 4 &&
         Number(field.length) <= 12)) &&
+    (field.maxLength === undefined ||
+      field.maxLength === null ||
+      (Number.isInteger(field.maxLength) &&
+        Number(field.maxLength) >= 4 &&
+        Number(field.maxLength) <= 12)) &&
     typeof field.numeric === "boolean" &&
     (field.pattern === null ||
       (typeof field.pattern === "string" && field.pattern.length <= 120))

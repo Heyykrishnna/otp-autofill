@@ -103,7 +103,9 @@ export class LinkCoordinator {
       origin &&
       context.hostname === new URL(url).hostname &&
       (!requireActive || tab.active) &&
-      tab.url === url &&
+      // Single-page sites change the tab URL without reloading, while the
+      // sender keeps the URL its document loaded at; compare sites instead.
+      siteOrigin(tab.url) === origin &&
       (await chrome.permissions.contains({ origins: [origin] })),
     )
   }

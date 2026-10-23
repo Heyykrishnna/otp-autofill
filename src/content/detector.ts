@@ -19,6 +19,7 @@ export function detectTargets(root: Document = document): OtpTarget[] {
     inputs: group.inputs,
     constraints: {
       length: group.expectedLength,
+      ...(group.maxLength ? { maxLength: group.maxLength } : {}),
       numeric: group.numeric,
       pattern: group.pattern,
     },
