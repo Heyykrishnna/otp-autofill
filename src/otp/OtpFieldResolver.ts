@@ -46,6 +46,7 @@ export function resolveOtpGroup(
 export async function fillResolvedOtp(
   group: DetectedGroup,
   code: string,
+  canContinue: () => boolean = () => true,
 ): Promise<FillVerificationResult> {
   const validated = validateOtpFormat(code, {
     length: group.expectedLength,
@@ -61,7 +62,7 @@ export async function fillResolvedOtp(
     }
   }
 
-  const executed = await executeOtpFill(group, validated)
+  const executed = await executeOtpFill(group, validated, canContinue)
   if (!executed) {
     return {
       accepted: false,
@@ -71,5 +72,8 @@ export async function fillResolvedOtp(
   }
 
   await nextTask()
+  if (!canContinue()) {
+    return { accepted: false, filledValue: "", reason: "Fill was cancelled" }
+  }
   return verifyOtpFill(group, validated)
 }

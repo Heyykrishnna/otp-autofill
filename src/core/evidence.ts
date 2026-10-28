@@ -47,7 +47,7 @@ export function currentMessageText(text: string): string {
 export function withoutHtmlQuotes(html: string): string {
   return (
     html.split(
-      /<blockquote\b|<div\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:gmail_quote|yahoo_quoted)\b/i,
+      /<blockquote\b|<div\b[^<>]*\bclass\s*=\s*["'][^<>"']*\b(?:gmail_quote|yahoo_quoted)\b/i,
     )[0] ?? ""
   )
 }

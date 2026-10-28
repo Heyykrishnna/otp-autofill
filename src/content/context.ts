@@ -1,6 +1,18 @@
 import { emailAddress, recipientAddresses } from "../core/evidence"
 import type { OtpTarget } from "./detector"
 import { visibleText } from "../otp/OtpFieldDetector"
+import type { VerificationContext } from "../core/types"
+
+export function matchesVerificationHints(
+  target: OtpTarget,
+  context: Pick<VerificationContext, "recipient" | "requestId">,
+): boolean {
+  const current = verificationHints(target)
+  return (
+    (!current.recipient || current.recipient === context.recipient) &&
+    current.requestId === context.requestId
+  )
+}
 
 export function verificationHints(target: OtpTarget): {
   recipient?: string

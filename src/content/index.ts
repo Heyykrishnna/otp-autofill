@@ -2,8 +2,9 @@ import { hasExpired, isTerminal, pollDelay } from "../core/lifecycle"
 import type { FlowState, VerificationContext } from "../core/types"
 import { isFlowState, isRecord } from "../core/validation"
 import { enterTarget } from "./submit"
-import { verificationHints } from "./context"
+import { matchesVerificationHints, verificationHints } from "./context"
 import { fillTarget } from "./autofill"
+import { liveInputs } from "../otp/OtpFillStrategy"
 import { detectTargets, type OtpTarget } from "./detector"
 import { runVerificationActions } from "./link-automation"
 import { startVerificationLinkController } from "./link-controller"
@@ -25,6 +26,7 @@ function startController(): void {
   let debounce: ReturnType<typeof setTimeout> | undefined
   let attempt = 0
   let busy = false
+  let filling = false
   let stopped = false
   let filled = false
   let permissionPaused = false
@@ -79,12 +81,7 @@ function startController(): void {
     const detected = detectTargets()
     return Boolean(
       target &&
-      (!context ||
-        JSON.stringify(verificationHints(target)) ===
-          JSON.stringify({
-            ...(context.recipient ? { recipient: context.recipient } : {}),
-            ...(context.requestId ? { requestId: context.requestId } : {}),
-          })) &&
+      (!context || matchesVerificationHints(target, context)) &&
       pageUrl === location.href &&
       target.inputs.every((input) => input.isConnected) &&
       detected.length === 1 &&
@@ -105,16 +102,43 @@ function startController(): void {
       !context ||
       id !== context.id ||
       stopped ||
+      busy ||
+      filled ||
       hasExpired(context.startedAt) ||
       document.visibilityState !== "visible" ||
       !stillCurrent() ||
       !target
     )
       return false
+    const currentContext = context
+    const currentTarget = target
+    const canContinue = () =>
+      context === currentContext &&
+      target === currentTarget &&
+      !stopped &&
+      !hasExpired(currentContext.startedAt) &&
+      pageUrl === location.href &&
+      document.visibilityState === "visible" &&
+      matchesVerificationHints(
+        {
+          ...currentTarget,
+          inputs: liveInputs(
+            currentTarget.inputs,
+            currentTarget.group?.container ?? null,
+          ),
+        },
+        currentContext,
+      )
     busy = true
-    const result = await fillTarget(target, code).finally(() => {
-      busy = false
-    })
+    filling = true
+    const result = await fillTarget(currentTarget, code, canContinue).finally(
+      () => {
+        busy = false
+        filling = false
+      },
+    )
+    if (context !== currentContext || target !== currentTarget || stopped)
+      return false
     if (result) {
       filled = true
       clearTimeout(timer)
@@ -191,6 +215,7 @@ function startController(): void {
   }
 
   function scan(): void {
+    if (filling) return
     if (pageUrl !== location.href) {
       reset()
       pageUrl = location.href
@@ -330,7 +355,10 @@ function startController(): void {
       if (
         event.isTrusted &&
         event.target instanceof HTMLInputElement &&
-        target?.inputs.includes(event.target)
+        target &&
+        liveInputs(target.inputs, target.group?.container ?? null).includes(
+          event.target,
+        )
       )
         finish("cancelled")
     },

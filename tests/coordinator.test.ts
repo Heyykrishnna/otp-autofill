@@ -61,6 +61,60 @@ function clientFor(bodies: unknown[]) {
 }
 
 describe("verification attempt orchestration", () => {
+  it("redelivers an identified code until the page acknowledges filling", async () => {
+    const { client, request } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193"),
+    ])
+    const coordinator = new Coordinator(client)
+    const delivery = { state: "identified", code: "482193" }
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual(delivery)
+    tabActive = false
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "permission_required",
+    })
+    tabActive = true
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual(delivery)
+    expect(request).toHaveBeenCalledTimes(2)
+    await coordinator.event(1, "doc1", context.id, "filled")
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "filled",
+    })
+  })
+
+  it("rechecks overlap before redelivering an unacknowledged code", async () => {
+    const { client } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193"),
+    ])
+    const coordinator = new Coordinator(client)
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toMatchObject({
+      code: "482193",
+    })
+    await coordinator.register(2, "doc2", tabUrl, {
+      ...context,
+      id: "6c5a1b76-dbd9-44be-b621-fc3dbfe558c8",
+    })
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "ambiguous",
+    })
+    expect(JSON.stringify([...store.values()])).not.toContain("482193")
+  })
+
+  it("does not redeliver a code after cancellation", async () => {
+    const { client, request } = clientFor([
+      { messages: [{ id: "message1" }] },
+      gmailMessage("Verification code: 482193"),
+    ])
+    const coordinator = new Coordinator(client)
+    await coordinator.poll(1, "doc1", tabUrl, context)
+    await coordinator.stop(1)
+    expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+      state: "cancelled",
+    })
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
   it("connects discovery, parsing, matching, and a single fill, without persisting codes", async () => {
     const { client, request } = clientFor([
       { messages: [{ id: "message1" }] },
@@ -153,6 +207,28 @@ describe("verification attempt orchestration", () => {
       { documentId: "doc1" },
     )
     expect(store.get("flow:1")).toMatchObject({ state: "filled" })
+  })
+
+  it("serializes manual delivery and records its acknowledgement only once", async () => {
+    const { client } = clientFor([
+      { messages: [{ id: "message1" }, { id: "message2" }] },
+      gmailMessage("Verification code: 482193"),
+      gmailMessage("Verification code: 987654", { id: "message2" }),
+    ])
+    const coordinator = new Coordinator(client)
+    await coordinator.poll(1, "doc1", tabUrl, context)
+    vi.mocked(chrome.tabs.sendMessage).mockImplementationOnce(async () => {
+      expect(await coordinator.poll(1, "doc1", tabUrl, context)).toEqual({
+        state: "identified",
+      })
+      expect(await coordinator.choose(1, context.id, "message2:0")).toBe(false)
+      await coordinator.event(1, "doc1", context.id, "filled")
+      return { filled: true }
+    })
+    expect(await coordinator.choose(1, context.id, "message1:0")).toBe(true)
+    expect(store.get("consumedMessages")).toEqual([
+      { messageId: "message1", until: Date.now() + 180_000 },
+    ])
   })
   it("uses bounded retry delays and expiry", () => {
     expect(hasExpired(context.startedAt, context.startedAt + 120_000)).toBe(

@@ -5,4 +5,5 @@ artifacts
 coverage
 test-results
 playwright-report
+audit_*/
 package-lock.json

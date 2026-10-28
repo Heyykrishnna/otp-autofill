@@ -1,4 +1,4 @@
-import type { DetectedGroup } from "./OtpGroupDetector"
+import { detectOtpGroups, type DetectedGroup } from "./OtpGroupDetector"
 import { isEligibleInput } from "./OtpFieldDetector"
 import { normalizeOtpCode } from "./OtpFormatValidator"
 
@@ -12,13 +12,6 @@ function resetReactValueTracker(
   if (tracker && typeof tracker.setValue === "function") {
     tracker.setValue(previousValue)
   }
-}
-
-function assignInputValue(input: HTMLInputElement, value: string): boolean {
-  setNativeValue(input, value)
-  input.dispatchEvent(new Event("input", { bubbles: true, composed: true }))
-  input.dispatchEvent(new Event("change", { bubbles: true }))
-  return true
 }
 
 function setNativeValue(input: HTMLInputElement, value: string): void {
@@ -39,8 +32,6 @@ export function nextTask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-// Widgets may re-render and replace their boxes after each character, so the
-// inputs captured at detection time can go stale mid-fill.
 export function liveInputs(
   inputs: HTMLInputElement[],
   container: HTMLElement | null,
@@ -48,10 +39,10 @@ export function liveInputs(
   if (inputs.every((input) => input.isConnected) || !container?.isConnected) {
     return inputs
   }
-  const current = [...container.querySelectorAll("input")].filter(
-    isEligibleInput,
-  )
-  return current.length === inputs.length ? current : inputs
+  const groups = detectOtpGroups(
+    [...container.querySelectorAll("input")].filter(isEligibleInput),
+  ).filter((group) => group.inputs.length === inputs.length)
+  return groups.length === 1 ? (groups[0]?.inputs ?? inputs) : inputs
 }
 
 function splitValue(inputs: HTMLInputElement[]): string {
@@ -62,6 +53,7 @@ async function pasteSplitOtp(
   inputs: HTMLInputElement[],
   container: HTMLElement | null,
   code: string,
+  canContinue: () => boolean,
 ): Promise<boolean> {
   const first = inputs[0]
   const view = first?.ownerDocument.defaultView
@@ -71,6 +63,8 @@ async function pasteSplitOtp(
   const clipboardData = new view.DataTransfer()
   clipboardData.setData("text/plain", code)
   first.focus({ preventScroll: true })
+  if (!canContinue() || !isEligibleInput(first) || first.value.trim() !== "")
+    return false
   first.dispatchEvent(
     new view.ClipboardEvent("paste", {
       clipboardData,
@@ -87,12 +81,16 @@ async function pasteSplitOtp(
   )
 }
 
-// Synthetic key events can't carry keyCode, so widgets that filter keydown by
-// keyCode would reject them; send only the input events a real keystroke fires.
-function typeCharacter(input: HTMLInputElement, char: string): void {
+function insertText(
+  input: HTMLInputElement,
+  text: string,
+  canContinue: () => boolean,
+): boolean {
   const view = input.ownerDocument.defaultView ?? window
-  const insert = { data: char, inputType: "insertText", composed: true }
+  const insert = { data: text, inputType: "insertText", composed: true }
   input.focus({ preventScroll: true })
+  if (!canContinue() || !isEligibleInput(input) || input.value.trim() !== "")
+    return false
   const accepted = input.dispatchEvent(
     new view.InputEvent("beforeinput", {
       ...insert,
@@ -101,19 +99,24 @@ function typeCharacter(input: HTMLInputElement, char: string): void {
     }),
   )
   if (!accepted) {
-    return
+    return true
   }
-  setNativeValue(input, char)
+  if (!canContinue() || !isEligibleInput(input) || input.value.trim() !== "")
+    return false
+  setNativeValue(input, text)
   input.dispatchEvent(
     new view.InputEvent("input", { ...insert, bubbles: true }),
   )
-  input.dispatchEvent(new Event("change", { bubbles: true }))
+  if (input.isConnected)
+    input.dispatchEvent(new view.Event("change", { bubbles: true }))
+  return true
 }
 
 export async function fillSplitOtpGroup(
   inputs: HTMLInputElement[],
   code: string,
   container: HTMLElement | null = null,
+  canContinue: () => boolean = () => true,
 ): Promise<boolean> {
   const cleanCode = normalizeOtpCode(code)
   const characters = cleanCode.split("")
@@ -131,28 +134,40 @@ export async function fillSplitOtpGroup(
     return false
   }
 
-  // Most split widgets spread a pasted code across their boxes themselves.
-  if (await pasteSplitOtp(inputs, container, cleanCode)) {
-    return true
+  if (!canContinue()) return false
+  if (await pasteSplitOtp(inputs, container, cleanCode, canContinue)) {
+    return canContinue()
   }
 
   for (let index = 0; index < characters.length; index++) {
-    const input = liveInputs(inputs, container)[index]
+    const current = liveInputs(inputs, container)
+    if (
+      !canContinue() ||
+      current.some(
+        (input, position) =>
+          !isEligibleInput(input) ||
+          (position < index
+            ? input.value !== characters[position]
+            : input.value.trim() !== ""),
+      )
+    )
+      return false
+    const input = current[index]
     const char = characters[index]
     if (!input || !char || !input.isConnected) {
       return false
     }
-    typeCharacter(input, char)
+    if (!insertText(input, char, canContinue)) return false
     await nextTask()
   }
 
-  liveInputs(inputs, container).at(-1)?.focus({ preventScroll: true })
-  return true
+  return canContinue()
 }
 
 export function fillSingleOrControllerOtp(
   input: HTMLInputElement,
   code: string,
+  canContinue: () => boolean = () => true,
 ): boolean {
   if (!input.isConnected || input.disabled || input.readOnly) {
     return false
@@ -161,21 +176,21 @@ export function fillSingleOrControllerOtp(
     return false
   }
   const cleanCode = normalizeOtpCode(code)
-  input.focus({ preventScroll: true })
-  assignInputValue(input, cleanCode)
-  return true
+  return insertText(input, cleanCode, canContinue)
 }
 
 export async function executeOtpFill(
   group: DetectedGroup,
   code: string,
+  canContinue: () => boolean = () => true,
 ): Promise<boolean> {
+  if (!canContinue()) return false
   if (group.mode === "split") {
-    return fillSplitOtpGroup(group.inputs, code, group.container)
+    return fillSplitOtpGroup(group.inputs, code, group.container, canContinue)
   }
   const primary = group.inputs[0]
   if (!primary) {
     return false
   }
-  return fillSingleOrControllerOtp(primary, code)
+  return fillSingleOrControllerOtp(primary, code, canContinue)
 }

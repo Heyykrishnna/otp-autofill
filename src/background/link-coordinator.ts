@@ -1,5 +1,5 @@
 import { extractVerificationLinks } from "../core/email-parser"
-import { hasExpired } from "../core/lifecycle"
+import { hasExpired, isTerminal } from "../core/lifecycle"
 import { sameWebsite, senderDomain } from "../core/matcher"
 import {
   MAX_VERIFICATION_CLICKS,
@@ -87,6 +87,36 @@ export class LinkCoordinator {
     attempt.selected = undefined
     attempt.seen.clear()
     clearTimeout(attempt.cleanup)
+  }
+
+  private isCurrent(tabId: number, attempt: LinkAttempt): boolean {
+    return (
+      this.attempts.get(tabId) === attempt &&
+      !attempt.controller.signal.aborted &&
+      !hasExpired(attempt.context.startedAt) &&
+      !isTerminal(attempt.status.state)
+    )
+  }
+
+  private async authorized(
+    tabId: number,
+    attempt: LinkAttempt,
+    requireActive = false,
+  ): Promise<boolean> {
+    if (!this.isCurrent(tabId, attempt)) return false
+    const settings = await readSettings()
+    return (
+      (settings.connected || settings.companionEnabled === true) &&
+      settings.autofill &&
+      (await this.trusted(
+        tabId,
+        attempt.documentId,
+        attempt.url,
+        attempt.context,
+        requireActive,
+      )) &&
+      this.isCurrent(tabId, attempt)
+    )
   }
 
   private async trusted(
@@ -258,103 +288,116 @@ export class LinkCoordinator {
     approved: boolean,
   ): Promise<{ ok: boolean; error?: string }> {
     const attempt = this.attempts.get(tabId)
+    const inactive = {
+      ok: false,
+      error: "This verification attempt is no longer active.",
+    }
     if (
       !attempt ||
       attempt.context.id !== id ||
       attempt.documentId !== documentId ||
       attempt.status.state !== "confirmation_required" ||
       !attempt.selected ||
-      hasExpired(attempt.context.startedAt) ||
-      !(await this.trusted(tabId, documentId, attempt.url, attempt.context))
+      attempt.busy ||
+      !this.isCurrent(tabId, attempt)
     )
-      return {
-        ok: false,
-        error: "This verification attempt is no longer active.",
-      }
-    if (!approved) {
-      await this.stop(tabId, "cancelled")
-      return { ok: true }
+      return inactive
+    const selected = attempt.selected
+    const fail = async (state: FlowState, error: string) => {
+      if (this.isCurrent(tabId, attempt)) await this.stop(tabId, state)
+      return { ok: false, error }
     }
-    const targetOrigin = siteOrigin(attempt.selected.url)
-    if (!targetOrigin) {
-      await this.stop(tabId, "failed")
-      return {
-        ok: false,
-        error: "The verification link is not a secure HTTPS URL.",
-      }
-    }
-    if (!(await chrome.permissions.contains({ origins: [targetOrigin] }))) {
-      let granted = false
-      try {
-        granted = await chrome.permissions.request({ origins: [targetOrigin] })
-      } catch {
-        granted = false
-      }
-      if (!granted) {
-        await this.stop(tabId, "permission_required")
-        return {
-          ok: false,
-          error:
-            "Site access is required to follow verification actions safely.",
-        }
-      }
-      try {
-        await syncSiteScripts()
-      } catch {
-        await this.stop(tabId, "failed")
-        return {
-          ok: false,
-          error: "Chrome could not enable the verification site.",
-        }
-      }
-    }
-    const target = new URL(attempt.selected.url)
-    if (!sameWebsite(target.hostname, attempt.context.hostname)) {
-      await this.stop(tabId, "failed")
-      return {
-        ok: false,
-        error: "The verification link leaves the requested website.",
-      }
-    }
-    let tab: chrome.tabs.Tab
+    attempt.busy = true
     try {
-      tab = await chrome.tabs.create({
-        url: attempt.selected.url,
-        active: true,
-        openerTabId: tabId,
-      })
-    } catch {
-      await this.stop(tabId, "failed")
-      return { ok: false, error: "Chrome could not open the verification tab." }
-    }
-    const automationTabId = tab.id
-    if (automationTabId === undefined) {
-      await this.stop(tabId, "failed")
-      return { ok: false, error: "Chrome could not open the verification tab." }
-    }
-    this.automations.set(automationTabId, {
-      originTabId: tabId,
-      originDocumentId: documentId,
-      flowId: id,
-      allowedHostname: attempt.context.hostname,
-      visited: new Set(),
-      clicks: 0,
-      busy: false,
-      deadline: Date.now() + 45_000,
-    })
-    await this.publish(tabId, attempt, "opening_link")
-    attempt.candidates = []
-    attempt.selected = undefined
-    setTimeout(() => {
-      void chrome.tabs
-        .get(automationTabId)
-        .then((current) => {
-          if (current.status === "complete")
-            return this.advance(automationTabId)
+      if (!(await this.authorized(tabId, attempt, true))) return inactive
+      if (!approved) {
+        await this.stop(tabId, "cancelled")
+        return { ok: true }
+      }
+      const targetOrigin = siteOrigin(selected.url)
+      if (!targetOrigin)
+        return fail(
+          "failed",
+          "The verification link is not a secure HTTPS URL.",
+        )
+      if (!(await chrome.permissions.contains({ origins: [targetOrigin] }))) {
+        if (!this.isCurrent(tabId, attempt)) return inactive
+        let granted = false
+        try {
+          granted = await chrome.permissions.request({
+            origins: [targetOrigin],
+          })
+        } catch {
+          granted = false
+        }
+        if (!this.isCurrent(tabId, attempt)) return inactive
+        if (!granted)
+          return fail(
+            "permission_required",
+            "Site access is required to follow verification actions safely.",
+          )
+        try {
+          await syncSiteScripts()
+        } catch {
+          return fail(
+            "failed",
+            "Chrome could not enable the verification site.",
+          )
+        }
+      }
+      const target = new URL(selected.url)
+      if (!sameWebsite(target.hostname, attempt.context.hostname))
+        return fail(
+          "failed",
+          "The verification link leaves the requested website.",
+        )
+      if (!(await this.authorized(tabId, attempt, true))) return inactive
+      let tab: chrome.tabs.Tab
+      try {
+        tab = await chrome.tabs.create({
+          url: selected.url,
+          active: true,
+          openerTabId: tabId,
         })
-        .catch(() => false)
-    }, 750)
-    return { ok: true }
+      } catch {
+        return fail("failed", "Chrome could not open the verification tab.")
+      }
+      if (!(await this.authorized(tabId, attempt))) return inactive
+      const automationTabId = tab.id
+      if (automationTabId === undefined)
+        return fail("failed", "Chrome could not open the verification tab.")
+      const automation: LinkAutomation = {
+        originTabId: tabId,
+        originDocumentId: documentId,
+        flowId: id,
+        allowedHostname: attempt.context.hostname,
+        visited: new Set(),
+        clicks: 0,
+        busy: false,
+        deadline: Date.now() + 45_000,
+      }
+      this.automations.set(automationTabId, automation)
+      await this.publish(tabId, attempt, "opening_link")
+      if (!this.isCurrent(tabId, attempt)) {
+        if (this.automations.get(automationTabId) === automation)
+          this.automations.delete(automationTabId)
+        return inactive
+      }
+      attempt.candidates = []
+      attempt.selected = undefined
+      setTimeout(() => {
+        void chrome.tabs
+          .get(automationTabId)
+          .then((current) => {
+            if (current.status === "complete")
+              return this.advance(automationTabId)
+          })
+          .catch(() => false)
+      }, 750)
+      return { ok: true }
+    } finally {
+      attempt.busy = false
+    }
   }
 
   async onTabUpdated(
@@ -414,18 +457,40 @@ export class LinkCoordinator {
       return
     }
     const attempt = this.attempts.get(automation.originTabId)
-    if (!attempt || attempt.context.id !== automation.flowId) {
+    if (
+      !attempt ||
+      attempt.context.id !== automation.flowId ||
+      !this.isCurrent(automation.originTabId, attempt)
+    ) {
       this.automations.delete(tabId)
       return
     }
     automation.busy = true
-    await this.publish(automation.originTabId, attempt, "verifying")
     try {
+      if (
+        !(await this.authorized(automation.originTabId, attempt)) ||
+        this.automations.get(tabId) !== automation
+      ) {
+        if (this.automations.get(tabId) === automation)
+          this.automations.delete(tabId)
+        return
+      }
+      await this.publish(automation.originTabId, attempt, "verifying")
+      if (
+        !this.isCurrent(automation.originTabId, attempt) ||
+        this.automations.get(tabId) !== automation
+      )
+        return
       const result: unknown = await chrome.tabs.sendMessage(tabId, {
         type: "ADVANCE_LINK_VERIFICATION",
         id: automation.flowId,
         maximumClicks: MAX_VERIFICATION_CLICKS - automation.clicks,
       })
+      if (
+        !this.isCurrent(automation.originTabId, attempt) ||
+        this.automations.get(tabId) !== automation
+      )
+        return
       if (!isRecord(result) || typeof result.clicks !== "number") {
         await this.failAutomation(tabId)
         return
@@ -452,8 +517,14 @@ export class LinkCoordinator {
 
   recordAction(tabId: number, id: string): boolean {
     const automation = this.automations.get(tabId)
+    const attempt = automation
+      ? this.attempts.get(automation.originTabId)
+      : undefined
     if (
       !automation ||
+      !attempt ||
+      !this.isCurrent(automation.originTabId, attempt) ||
+      attempt.context.id !== automation.flowId ||
       automation.flowId !== id ||
       Date.now() >= automation.deadline ||
       automation.clicks >= MAX_VERIFICATION_CLICKS
@@ -466,10 +537,17 @@ export class LinkCoordinator {
   private async completeAutomation(tabId: number): Promise<void> {
     const automation = this.automations.get(tabId)
     if (!automation) return
-    this.automations.delete(tabId)
     const attempt = this.attempts.get(automation.originTabId)
-    if (!attempt || attempt.context.id !== automation.flowId) return
+    if (
+      !attempt ||
+      attempt.context.id !== automation.flowId ||
+      !(await this.authorized(automation.originTabId, attempt)) ||
+      this.automations.get(tabId) !== automation
+    )
+      return
+    this.automations.delete(tabId)
     await this.publish(automation.originTabId, attempt, "completed")
+    if (attempt.controller.signal.aborted) return
     await chrome.tabs
       .sendMessage(
         automation.originTabId,
@@ -488,8 +566,14 @@ export class LinkCoordinator {
     if (!automation) return
     this.automations.delete(tabId)
     const attempt = this.attempts.get(automation.originTabId)
-    if (!attempt || attempt.context.id !== automation.flowId) return
+    if (
+      !attempt ||
+      attempt.context.id !== automation.flowId ||
+      !this.isCurrent(automation.originTabId, attempt)
+    )
+      return
     await this.publish(automation.originTabId, attempt, "failed", detail)
+    if (attempt.controller.signal.aborted) return
     await chrome.tabs
       .sendMessage(
         automation.originTabId,

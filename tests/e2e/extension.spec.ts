@@ -234,6 +234,7 @@ test("fills React state and leaves submission and unrelated inputs untouched", a
 for (const scenario of [
   { kind: "split", code: "042193", result: "042193" },
   { kind: "indexed", code: "289217", result: "289217" },
+  { kind: "remount", code: "042193", result: "042193" },
   { kind: "alpha", code: "UCSIAGUBQQ", result: "UCSIAGUBQQ" },
   { kind: "alpha", code: "aB7xQ9Kp2Z", result: "aB7xQ9Kp2Z" },
   { kind: "single", code: "482 193", result: "482193" },
@@ -267,7 +268,7 @@ test("fills MLH-style indexed fields from an authenticated sibling domain", asyn
   })
   const page = await extension.context.newPage()
   await page.goto(
-    "https://www.mlh.com/?scenario=indexed&recipient=test@example.com",
+    "https://www.mlh.com/?scenario=mlh&recipient=test@example.com",
   )
   await expect
     .poll(async () =>
@@ -935,7 +936,7 @@ for (const pageName of ["popup", "options"]) {
   })
 }
 
-for (const scenario of ["single", "split", "indexed"]) {
+for (const scenario of ["single", "split", "indexed", "remount", "mlh"]) {
   test(`presses Enter once after filling ${scenario} when enabled`, async ({
     extension,
   }) => {

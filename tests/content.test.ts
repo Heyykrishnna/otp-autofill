@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { fillTarget } from "../src/content/autofill"
-import { verificationHints } from "../src/content/context"
+import {
+  matchesVerificationHints,
+  verificationHints,
+} from "../src/content/context"
 import { detectTargets } from "../src/content/detector"
 
 beforeEach(() => {
@@ -14,6 +17,117 @@ beforeEach(() => {
 })
 
 describe("field detection and autofill", () => {
+  it("fills controllers that read the inserted text from InputEvent", async () => {
+    document.body.innerHTML =
+      '<form><input autocomplete="one-time-code" maxlength="6" /></form>'
+    const target = detectTargets()[0]
+    if (!target) throw new Error("Expected controller target")
+    let state = ""
+    target.inputs[0]?.addEventListener("input", (event) => {
+      if (event instanceof InputEvent && event.inputType === "insertText") {
+        state = event.data ?? ""
+      }
+      target.inputs[0]!.value = state
+    })
+    expect(await fillTarget(target, "482193")).toBe(true)
+    expect(state).toBe("482193")
+  })
+
+  it("keeps remounted split boxes in logical order and refreshes the target", async () => {
+    document.body.innerHTML = '<form><div class="otp-boxes"></div></form>'
+    const container = document.querySelector<HTMLElement>(".otp-boxes")
+    if (!container) throw new Error("Expected boxes")
+    const values = Array<string>(6).fill("")
+    function render() {
+      container!.replaceChildren(
+        ...[2, 0, 4, 1, 5, 3].map((index) => {
+          const input = document.createElement("input")
+          input.maxLength = 1
+          input.dataset.slot = String(index)
+          input.value = values[index] ?? ""
+          input.addEventListener("input", () => {
+            values[index] = input.value
+            render()
+          })
+          return input
+        }),
+      )
+    }
+    render()
+    const target = detectTargets()[0]
+    if (!target) throw new Error("Expected split target")
+    expect(await fillTarget(target, "482193")).toBe(true)
+    expect(values.join("")).toBe("482193")
+    expect(target.inputs.every((input) => input.isConnected)).toBe(true)
+    expect(target.inputs.map((input) => input.value).join("")).toBe("482193")
+  })
+
+  it("preserves input entered while a split fill is yielding", async () => {
+    document.body.innerHTML = `<fieldset aria-label="Verification code">${Array.from({ length: 6 }, () => '<input maxlength="1" />').join("")}</fieldset>`
+    const target = detectTargets()[0]
+    if (!target) throw new Error("Expected split target")
+    target.inputs[0]?.addEventListener("input", () => {
+      target.inputs[1]!.value = "9"
+    })
+    expect(await fillTarget(target, "482193")).toBe(false)
+    expect(target.inputs[1]?.value).toBe("9")
+    expect(
+      target.inputs
+        .slice(2)
+        .map((input) => input.value)
+        .join(""),
+    ).toBe("")
+  })
+
+  it("stops between digits when its verification attempt is cancelled", async () => {
+    document.body.innerHTML = `<fieldset aria-label="Verification code">${Array.from({ length: 6 }, () => '<input maxlength="1" />').join("")}</fieldset>`
+    const target = detectTargets()[0]
+    if (!target) throw new Error("Expected split target")
+    let active = true
+    target.inputs[0]?.addEventListener("input", () => {
+      active = false
+    })
+    expect(await fillTarget(target, "482193", () => active)).toBe(false)
+    expect(target.inputs.map((input) => input.value)).toEqual([
+      "4",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ])
+  })
+
+  it("rechecks the attempt after a host focus handler changes the request", async () => {
+    document.body.innerHTML =
+      '<form><input autocomplete="one-time-code" maxlength="6" /></form>'
+    const target = detectTargets()[0]
+    if (!target) throw new Error("Expected target")
+    let active = true
+    target.inputs[0]?.addEventListener("focus", () => {
+      active = false
+    })
+    expect(await fillTarget(target, "482193", () => active)).toBe(false)
+    expect(target.inputs[0]?.value).toBe("")
+  })
+
+  it("respects a host beforeinput handler without duplicating its insertion", async () => {
+    document.body.innerHTML =
+      '<form><input autocomplete="one-time-code" maxlength="6" /></form>'
+    const target = detectTargets()[0]
+    const input = target?.inputs[0]
+    if (!target || !input) throw new Error("Expected target")
+    input.addEventListener("beforeinput", (event) => {
+      event.preventDefault()
+      if (event instanceof InputEvent) input.value = event.data ?? ""
+    })
+    const onInput = vi.fn()
+    input.addEventListener("input", onInput)
+    expect(await fillTarget(target, "482193")).toBe(true)
+    expect(input.value).toBe("482193")
+    expect(onInput).not.toHaveBeenCalled()
+  })
+
   it("detects an accessible single input and emits framework events without submitting", async () => {
     document.body.innerHTML =
       '<form><label for="code">Verification code</label><input id="code" autocomplete="one-time-code" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" /><input name="search" /></form>'
@@ -139,6 +253,24 @@ it("reads a recipient from a character-count delivery message", async () => {
   const target = detectTargets()[0]
   if (!target) throw new Error("Expected indexed target")
   expect(verificationHints(target)).toEqual({ recipient: "alice@gmail.com" })
+})
+
+it("retains recipient evidence when its label disappears and rejects conflicting requests", () => {
+  document.body.innerHTML =
+    '<form data-otp-recipient="alice@gmail.com" data-otp-request-id="request-123"><input name="otp" maxlength="6" /></form>'
+  const target = detectTargets()[0]
+  const form = document.querySelector("form")
+  if (!target || !form) throw new Error("Expected form")
+  const context = verificationHints(target)
+  form.removeAttribute("data-otp-recipient")
+  expect(matchesVerificationHints(target, context)).toBe(true)
+  form.setAttribute("data-otp-recipient", "bob@gmail.com")
+  expect(matchesVerificationHints(target, context)).toBe(false)
+  form.setAttribute("data-otp-recipient", "alice@gmail.com")
+  form.setAttribute("data-otp-request-id", "request-456")
+  expect(matchesVerificationHints(target, context)).toBe(false)
+  form.removeAttribute("data-otp-request-id")
+  expect(matchesVerificationHints(target, context)).toBe(false)
 })
 
 it("sends Enter and validates the form before submitting, without submitting a second time", async () => {

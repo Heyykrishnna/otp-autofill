@@ -83,6 +83,43 @@ export function decodeMimeHeader(value: string): string {
     )
 }
 
+function htmlTextContent(html: string): string {
+  const text: string[] = []
+  const lower = html.toLowerCase()
+  let cursor = 0
+  while (cursor < html.length) {
+    const opening = html.indexOf("<", cursor)
+    if (opening < 0) {
+      text.push(html.slice(cursor))
+      break
+    }
+    text.push(html.slice(cursor, opening), " ")
+    if (html.startsWith("<!--", opening)) {
+      const end = html.indexOf("-->", opening + 4)
+      cursor = end < 0 ? html.length : end + 3
+      continue
+    }
+    const end = html.indexOf(">", opening + 1)
+    if (end < 0) break
+    const name = html
+      .slice(opening + 1, end)
+      .match(/^\s*(script|style|head)(?=[\s/>]|$)/i)?.[1]
+      ?.toLowerCase()
+    cursor = end + 1
+    if (!name) continue
+    const marker = `</${name}`
+    let closing = lower.indexOf(marker, cursor)
+    while (closing >= 0 && !/[\s>]/.test(html[closing + marker.length] ?? "")) {
+      closing = lower.indexOf(marker, closing + marker.length)
+    }
+    if (closing < 0) break
+    const closingEnd = html.indexOf(">", closing + marker.length)
+    if (closingEnd < 0) break
+    cursor = closingEnd + 1
+  }
+  return text.join("")
+}
+
 export function htmlToText(html: string): string {
   const entities: Record<string, string> = {
     nbsp: " ",
@@ -93,11 +130,7 @@ export function htmlToText(html: string): string {
     apos: "'",
     colon: ":",
   }
-  return html
-    .slice(0, 1_000_000)
-    .replace(/<(script|style|head)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
+  return htmlTextContent(html.slice(0, 1_000_000))
     .replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (_, entity: string) => {
       if (!entity.startsWith("#")) return entities[entity.toLowerCase()] ?? " "
       const value =
@@ -192,20 +225,28 @@ function actionLinks(part: GmailPart): EmailVerificationLink[] {
   const raw = withoutHtmlQuotes(
     part.body?.data ? decodeBase64Url(part.body.data) : "",
   )
-  const links =
-    part.mimeType === "text/html"
-      ? [
-          ...raw.matchAll(
-            /<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi,
-          ),
-        ].flatMap((match) => {
-          const label = htmlToText(match[2] ?? "").slice(0, 160)
-          const url = safeVerificationUrl(match[1] ?? "")
-          return url && LINK_ACTION.test(label) && !LINK_NEGATIVE.test(label)
-            ? [{ url, label }]
-            : []
-        })
-      : []
+  const links: EmailVerificationLink[] = []
+  if (part.mimeType === "text/html") {
+    let opening: { url: string; labelStart: number } | null = null
+    for (const tag of raw.matchAll(/<\/?a\b[^<>]*>/gi)) {
+      if (/^<\//.test(tag[0])) {
+        if (opening) {
+          const label = htmlToText(
+            raw.slice(opening.labelStart, tag.index),
+          ).slice(0, 160)
+          if (LINK_ACTION.test(label) && !LINK_NEGATIVE.test(label))
+            links.push({ url: opening.url, label })
+        }
+        opening = null
+        continue
+      }
+      const href = tag[0].match(
+        /\bhref\s*=\s*["'](https?:\/\/[^<>"']+)["']/i,
+      )?.[1]
+      const url = href ? safeVerificationUrl(href) : null
+      opening = url ? { url, labelStart: tag.index + tag[0].length } : null
+    }
+  }
   return [...links, ...(part.parts ?? []).flatMap(actionLinks)].slice(0, 32)
 }
 
@@ -239,7 +280,7 @@ export function parseGmailMessage(value: unknown): EmailMessage | null {
     const own = forwarded ? raw : withoutHtmlQuotes(raw)
     const content =
       part.mimeType === "text/html"
-        ? `${htmlToText(own)} ${[...own.matchAll(/<a\b[^>]*\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi)].map((match) => match[1]).join(" ")}`
+        ? `${htmlToText(own)} ${[...own.matchAll(/<a\b[^<>]*\bhref\s*=\s*["'](https?:\/\/[^<>"']+)["']/gi)].map((match) => match[1]).join(" ")}`
         : part.mimeType === "text/plain"
           ? currentMessageText(own)
           : ""

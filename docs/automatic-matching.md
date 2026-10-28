@@ -14,6 +14,14 @@ A sender on the website's registrable domain can match directly. A sibling domai
 
 There is no editable sender map, hardcoded provider whitelist, background browsing of unrelated sites or learned persistent mail history. Brand wording or a shared domain label alone cannot trigger automatic fill. A website with no distinguishing information may require confirmation or manual entry. These rules reduce mistakes; they are not measured accuracy percentages or cryptographic proof that separately registered domains share an owner.
 
+## Filling and acknowledgement
+
+Split widgets receive a paste first, then individual text input events when the page does not handle paste. Single fields receive text-bearing `beforeinput` and `input` events through the native value setter. The extension resolves replacement boxes in their logical order, refreshes its target after a successful fill, and checks cancellation and field contents between digits. Manual input, a changed recipient/request, navigation, hidden pages, and disabled or read-only fields stop an in-progress fill.
+
+If a delivery label disappears while the same form is updating, the attempt retains the recipient it already matched. A newly conflicting recipient still stops filling. Request references must remain unchanged, including when they are removed.
+
+An identified code stays eligible for delivery within its original attempt until the page acknowledges filling it. Retrying delivery rechecks expiry, consumed messages, and overlapping login attempts without making another inbox request. Acknowledged or cancelled codes are not delivered again.
+
 ## Enter settings
 
 Settings → **After filling** contains:
@@ -27,7 +35,7 @@ Script-created keyboard events are not trusted physical keypresses. A custom sit
 
 ## Existing installations
 
-Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.4.0.
+Reload the extension card in `chrome://extensions`, close the old settings tab and reopen Settings. Refresh an already-open verification page so the latest content controller is active. The installed folder remains `artifacts/otp-autofill-0.1.0` to preserve its path-derived ID, while its manifest version is 0.4.1.
 
 Additional inboxes require the updated companion source. If an older companion is running, restart it with `npm run companion` and reconnect its accounts; credentials intentionally do not survive process exit. Primary Chrome Identity mode does not require that process.
 

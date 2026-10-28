@@ -1,5 +1,54 @@
-import { useState } from "react"
+import { createRef, useState } from "react"
 import { createRoot } from "react-dom/client"
+
+function MlhCode({ onCode }: { onCode: (value: string) => void }) {
+  const [refs] = useState(() =>
+    Array.from({ length: 6 }, () => createRef<HTMLInputElement>()),
+  )
+  function spread(start: number, text: string) {
+    const digits = text.replace(/\D/g, "").slice(0, refs.length - start)
+    for (const [offset, digit] of [...digits].entries()) {
+      const input = refs[start + offset]?.current
+      if (input) input.value = digit
+    }
+    onCode(refs.map((ref) => ref.current?.value ?? "").join(""))
+    const next = refs[Math.min(start + digits.length, refs.length - 1)]?.current
+    next?.focus()
+    next?.select()
+  }
+  return (
+    <fieldset aria-label="Verification code">
+      <legend>Check your email inbox for your login code</legend>
+      {refs.map((ref, index) => (
+        <input
+          key={index}
+          ref={ref}
+          id={`otp${index}`}
+          name={`otp${index}`}
+          inputMode="numeric"
+          autoComplete={index === 0 ? "one-time-code" : "off"}
+          aria-label={`Digit ${index + 1} of 6`}
+          onKeyDown={(event) => {
+            if (event.metaKey || event.ctrlKey || event.altKey) return
+            if (/^[0-9]$/.test(event.key)) {
+              event.preventDefault()
+              spread(index, event.key)
+            }
+          }}
+          onInput={(event) => {
+            const digits = event.currentTarget.value
+            event.currentTarget.value = ""
+            spread(index, digits)
+          }}
+          onPaste={(event) => {
+            event.preventDefault()
+            spread(0, event.clipboardData.getData("text/plain"))
+          }}
+        />
+      ))}
+    </fieldset>
+  )
+}
 
 function Laboratory() {
   const verificationDestination = location.pathname === "/verify-email"
@@ -10,6 +59,8 @@ function Laboratory() {
         "single",
         "split",
         "indexed",
+        "mlh",
+        "remount",
         "controller",
         "alpha",
         "dynamic",
@@ -71,6 +122,8 @@ function Laboratory() {
         <option value="single">React controlled numeric input</option>
         <option value="split">Six separate inputs</option>
         <option value="indexed">Six indexed inputs without maxlength</option>
+        <option value="mlh">MLH paste and input handlers</option>
+        <option value="remount">Split inputs replaced after every digit</option>
         <option value="controller">Six visual slots with one input</option>
         <option value="alpha">Case-sensitive alphanumeric</option>
         <option value="dynamic">Dynamically mounted field</option>
@@ -118,12 +171,16 @@ function Laboratory() {
                 />
               </div>
             </section>
-          ) : kind === "split" || kind === "indexed" ? (
+          ) : kind === "mlh" ? (
+            <MlhCode onCode={setCode} />
+          ) : kind === "split" || kind === "indexed" || kind === "remount" ? (
             <fieldset aria-label="Verification code">
               <legend>Verification code</legend>
               {split.map((value, index) => (
                 <input
-                  key={index}
+                  key={
+                    kind === "remount" ? `${index}:${split.join("")}` : index
+                  }
                   aria-label={
                     kind === "indexed"
                       ? `Digit ${index + 1} of 6`
@@ -133,7 +190,7 @@ function Laboratory() {
                     kind === "indexed" && index === 0 ? "one-time-code" : "off"
                   }
                   inputMode="numeric"
-                  maxLength={kind === "split" ? 1 : undefined}
+                  maxLength={kind === "indexed" ? undefined : 1}
                   value={value}
                   onChange={(event) =>
                     setSplit((previous) =>
@@ -192,7 +249,7 @@ function Laboratory() {
           </button>
           <output aria-label="React state">
             React state:{" "}
-            {kind === "split" || kind === "indexed"
+            {kind === "split" || kind === "indexed" || kind === "remount"
               ? split.join("")
               : code || "empty"}
           </output>

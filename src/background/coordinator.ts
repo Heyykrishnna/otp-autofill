@@ -33,7 +33,12 @@ interface Attempt {
   nextPollAt: number
   cleanup: ReturnType<typeof setTimeout>
   warnings: string[]
-  delivery?: { fingerprint: string; messageId: string }
+  delivery?: {
+    fingerprint: string
+    messageId: string
+    candidateId: string
+    chosen: boolean
+  }
 }
 
 const DETAILS: Partial<Record<FlowState, string>> = {
@@ -316,6 +321,7 @@ export class Coordinator {
   private async reserve(
     attempt: Attempt,
     candidate: Candidate,
+    chosen = false,
   ): Promise<boolean> {
     const fingerprint = await this.fingerprint(candidate)
     const previous = this.fingerprints.get(fingerprint)
@@ -332,7 +338,12 @@ export class Coordinator {
       until: candidate.receivedAt + 180_000,
       used: false,
     })
-    attempt.delivery = { fingerprint, messageId: candidate.messageId }
+    attempt.delivery = {
+      fingerprint,
+      messageId: candidate.messageId,
+      candidateId: candidate.id,
+      chosen,
+    }
     return true
   }
 
@@ -379,15 +390,48 @@ export class Coordinator {
     const attempt = this.attempts.get(tabId)
     if (!attempt || attempt.context.id !== context.id)
       return { state: "cancelled" }
-    if (
-      isTerminal(attempt.status.state) ||
-      ["filled", "identified"].includes(attempt.status.state)
-    )
+    if (isTerminal(attempt.status.state) || attempt.status.state === "filled")
       return { state: attempt.status.state }
-    if (
-      attempt.busy ||
-      Date.now() < Math.max(attempt.nextPollAt, this.globalNextPollAt)
-    )
+    if (attempt.busy) return { state: attempt.status.state }
+    if (attempt.status.state === "identified" && attempt.delivery) {
+      const delivery = attempt.delivery
+      const candidates = await this.unused(
+        attempt,
+        eligibleCandidates(attempt.candidates, context, Date.now()),
+      )
+      if (
+        this.attempts.get(tabId) !== attempt ||
+        attempt.controller.signal.aborted ||
+        attempt.delivery !== delivery ||
+        attempt.status.state !== "identified"
+      )
+        return { state: "cancelled" }
+      const candidate = candidates.find(
+        (item) => item.id === delivery.candidateId,
+      )
+      if (candidate) {
+        const match = matchCandidates(
+          candidates,
+          context,
+          Date.now(),
+          this.policy(attempt),
+        )
+        if (
+          delivery.chosen ||
+          (match.kind === "unique" && match.candidate.code === candidate.code)
+        )
+          return { state: "identified", code: candidate.code }
+      }
+      this.fingerprints.delete(delivery.fingerprint)
+      attempt.delivery = undefined
+      await this.publish(
+        tabId,
+        attempt,
+        candidates.length ? "ambiguous" : "waiting",
+      )
+      if (candidates.length) return { state: "ambiguous" }
+    }
+    if (Date.now() < Math.max(attempt.nextPollAt, this.globalNextPollAt))
       return { state: attempt.status.state }
     attempt.busy = true
     attempt.nextPollAt = Date.now() + 5_000
@@ -564,47 +608,52 @@ export class Coordinator {
       attempt.busy
     )
       return false
-    const settings = await readSettings()
-    if (
-      (!settings.connected && !settings.companionEnabled) ||
-      !settings.autofill ||
-      !(await this.trusted(
-        tabId,
-        attempt.documentId,
-        attempt.url,
+    attempt.busy = true
+    try {
+      const settings = await readSettings()
+      if (
+        (!settings.connected && !settings.companionEnabled) ||
+        !settings.autofill ||
+        !(await this.trusted(
+          tabId,
+          attempt.documentId,
+          attempt.url,
+          attempt.context,
+        ))
+      )
+        return false
+      const candidate = eligibleCandidates(
+        attempt.candidates,
         attempt.context,
-      ))
-    )
-      return false
-    const candidate = eligibleCandidates(
-      attempt.candidates,
-      attempt.context,
-      Date.now(),
-    ).find((item) => item.id === candidateId)
-    if (
-      !candidate ||
-      !(await this.unused(attempt, [candidate])).length ||
-      !(await this.reserve(attempt, candidate))
-    )
-      return false
-    await this.publish(
-      tabId,
-      attempt,
-      "identified",
-      "Filling the email you selected.",
-    )
-    const result: unknown = await chrome.tabs.sendMessage(
-      tabId,
-      { type: "FILL", id, code: candidate.code },
-      { documentId: attempt.documentId },
-    )
-    if (!isRecord(result) || result.filled !== true) {
-      await this.stop(tabId)
-      return false
+        Date.now(),
+      ).find((item) => item.id === candidateId)
+      if (
+        !candidate ||
+        !(await this.unused(attempt, [candidate])).length ||
+        !(await this.reserve(attempt, candidate, true))
+      )
+        return false
+      await this.publish(
+        tabId,
+        attempt,
+        "identified",
+        "Filling the email you selected.",
+      )
+      const result: unknown = await chrome.tabs.sendMessage(
+        tabId,
+        { type: "FILL", id, code: candidate.code },
+        { documentId: attempt.documentId },
+      )
+      if (this.attempts.get(tabId) !== attempt) return false
+      if (!isRecord(result) || result.filled !== true) {
+        await this.stop(tabId)
+        return false
+      }
+      await this.event(tabId, attempt.documentId, id, "filled")
+      const status = this.attempts.get(tabId)?.status
+      return status?.id === id && status.state === "filled"
+    } finally {
+      attempt.busy = false
     }
-    await this.remember(attempt)
-    this.clearSensitive(attempt)
-    await this.publish(tabId, attempt, "filled")
-    return true
   }
 }

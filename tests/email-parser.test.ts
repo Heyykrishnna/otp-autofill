@@ -213,4 +213,43 @@ describe("Gmail MIME decoding", () => {
     expect(decodeBase64Url("x".repeat(1_500_001))).toBe("")
     expect(htmlToText("&#x110000; &#55296; &unknown;")).toBe("")
   })
+
+  it("bounds malformed HTML processing without exposing hidden content", () => {
+    const start = performance.now()
+    expect(htmlToText("<".repeat(80_000))).toBe("")
+    expect(htmlToText("<!--".repeat(20_000))).toBe("")
+    expect(htmlToText("<script>".repeat(10_000))).toBe("")
+    expect(performance.now() - start).toBeLessThan(1000)
+    expect(htmlToText("Visible<script>Verification code: 482193")).toBe(
+      "Visible",
+    )
+    expect(htmlToText("Visible<!--Verification code: 482193")).toBe("Visible")
+    expect(
+      htmlToText(
+        "<script>hidden</scripted>still hidden</script><p>Verification code: 482193</p>",
+      ),
+    ).toBe("Verification code: 482193")
+  })
+
+  it("bounds the complete MIME parsing path for malformed tags and unclosed anchors", () => {
+    const start = performance.now()
+    for (const html of [
+      "<div ".repeat(16_000),
+      '<a href="https://example.com/verify">'.repeat(16_000),
+      "<!--".repeat(16_000),
+      "<script>".repeat(16_000),
+    ]) {
+      const parsed = parseGmailMessage(
+        gmailMessage("", {
+          payload: {
+            mimeType: "text/html",
+            headers: [{ name: "Subject", value: "Verification code" }],
+            body: { data: Buffer.from(html).toString("base64url") },
+          },
+        }),
+      )
+      expect(parsed?.verificationLinks).toEqual([])
+    }
+    expect(performance.now() - start).toBeLessThan(3000)
+  })
 })
